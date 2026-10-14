@@ -1,0 +1,146 @@
+name: Windows 7 build
+
+# Builds the Windows 7 SP1 x64 installer on a hosted Windows runner, where the
+# prerequisites this track needs already exist: MSVC + Windows SDK (the NSIS
+# helper compiles), real filesystem symlinks (pnpm's isolated layout), and
+# enough memory for the TypeScript build.
+#
+# On success the installer is attached to a GitHub Release, which is what makes
+# the download URL work from a browser address bar:
+#   https://github.com/<owner>/<repo>/releases/download/<tag>/<file>.exe
+#
+# Artifacts (the "Artifacts" section of a run) require an authenticated session
+# and are NOT direct-download links; the release asset above is the direct one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to publish (default: win7-<run number>)'
+        required: false
+        default: ''
+      signed:
+        description: 'Build with EV signing (requires the signing secrets)'
+        type: boolean
+        required: false
+        default: false
+  push:
+    tags:
+      - 'win7-*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: win7-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 180
+    env:
+      # The Windows 7 track selects Electron 22 / Node 16 / Python 3.8 and the
+      # compatibility runtime; the track's own orchestrator sets the rest.
+      DSH_TARGET_WIN7: '1'
+      # The track ships no update feed. A syntactically valid HTTPS origin
+      # satisfies the mandatory-update policy check that packaging performs.
+      DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: ${{ vars.DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN || 'https://example.invalid' }}
+      DSH_DESKTOP_APP_ID: ${{ vars.DSH_DESKTOP_APP_ID || 'com.deepseek.harness' }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Show the payload the build will use
+        shell: pwsh
+        run: |
+          Write-Host "symlink check:"
+          node -e "const fs=require('fs');fs.symlinkSync('.','link');console.log(fs.lstatSync('link').isSymbolicLink())"
+          Write-Host "node: $(node -v)"
+          Write-Host "free space:"; Get-PSDrive D | Select-Object Used,Free
+
+      - name: Install pnpm
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.28.5 --activate
+          pnpm -v
+
+      - name: Cache the pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/pnpm/store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+
+      - name: Install dependencies
+        shell: pwsh
+        # The Windows 7 track adds dependencies the Win10 lockfile does not
+        # carry, so the lockfile is refreshed rather than frozen here.
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build the Windows 7 installer
+        shell: pwsh
+        run: |
+          if ('${{ inputs.signed }}' -eq 'true') {
+            pnpm build:win7 -- --skip-install --signed
+          } else {
+            pnpm build:win7 -- --skip-install
+          }
+
+      - name: List the produced artifacts
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path dist) { Get-ChildItem dist | Format-Table Name,Length } else { Write-Host 'dist/ was not produced' }
+          if (Test-Path .desktop-build/win7-build) { Get-ChildItem .desktop-build/win7-build | Format-Table Name,Length }
+
+      - name: Upload the PE import report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: win7-pe-import-report
+          path: |
+            .desktop-build/win7-build/win7-run.json
+            .desktop-build/win7-build/pe-import-report.json
+          if-no-files-found: warn
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: win7-build-logs
+          path: .desktop-build/win7-build/*.log
+          if-no-files-found: warn
+
+      - name: Upload the installer as a run artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: win7-installer
+          path: |
+            dist/*win7*setup.exe
+            dist/*win7*setup.exe.blockmap
+          if-no-files-found: error
+
+      # A release asset is the only URL that starts a download from the browser
+      # address bar. It needs a public repository: private repositories require
+      # an authenticated session.
+      - name: Publish the release
+        if: success()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = '${{ inputs.release_tag }}'
+          if ([string]::IsNullOrWhiteSpace($tag)) { $tag = "win7-${{ github.run_number }}" }
+          $installer = Get-ChildItem dist -Filter '*win7*setup.exe' | Select-Object -First 1
+          if ($null -eq $installer) { throw 'no *win7*setup.exe artifact was produced' }
+          Write-Host "asset: $($installer.FullName) ($([math]::Round($installer.Length/1MB,1)) MB)"
+          gh release create $tag $installer.FullName `
+            --repo '${{ github.repository }}' `
+            --title "Windows 7 SP1 x64 build $tag" `
+            --notes "Electron 22.3.27 / Chromium 108 / Node 16.20.2 / CPython 3.8.10. See WIN7_BLOCKERS.md for the verified scope and the known downgrades." `
+            --latest=false
+          $asset = $installer.Name
+          Write-Host "direct download: https://github.com/${{ github.repository }}/releases/download/$tag/$asset"
