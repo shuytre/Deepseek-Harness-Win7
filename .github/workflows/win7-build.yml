@@ -113,6 +113,27 @@ jobs:
           path: .desktop-build/win7-build/*.log
           if-no-files-found: warn
 
+      # The repository owner cannot always reach api.github.com, so a failed run
+      # commits its own diagnostics back to a branch that can be read through
+      # the repository file API. This turns a blocked failure into a readable one.
+      - name: Commit diagnostics on failure
+        if: failure()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $branch = 'win7-diagnostics'
+          git config user.name 'win7-build-bot'
+          git config user.email 'win7-build-bot@users.noreply.github.com'
+          git checkout -B $branch
+          New-Item -ItemType Directory -Force .win7-diagnostics | Out-Null
+          Copy-Item -Recurse -Force .desktop-build/win7-build/* .win7-diagnostics/ -ErrorAction SilentlyContinue
+          git add .win7-diagnostics
+          if ($LASTEXITCODE -ne 0) { exit 0 }
+          git commit -m "diagnostics: run ${{ github.run_number }} failed" 2>$null
+          if ($LASTEXITCODE -ne 0) { exit 0 }
+          git push --force origin $branch
+
       - name: Upload the installer as a run artifact
         if: success()
         uses: actions/upload-artifact@v4
