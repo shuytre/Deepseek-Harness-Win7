@@ -1,10 +1,10 @@
 /** Isolated Platform documents owned by the desktop account lifetime. */
 import type { EventEmitter } from 'node:events'
 import { createHash, randomUUID } from 'node:crypto'
-import { session, shell, type BrowserWindow, type Session, type WebFrameMain } from 'electron'
+import { session, shell, type Session, type WebFrameMain } from 'electron'
 import { mergePlatformCookies, platformClientHeaders, type PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { desktopClientMetadata } from './client-metadata.ts'
-import { createAttachableView, type AttachableView } from '../win7/electron/view-adapter.ts'
+import { createAttachableView, type AttachableWindow, type AttachableView } from '../win7/electron/view-adapter.ts'
 import { closeAllConnectionsCompat } from '../win7/electron/api-compat.ts'
 
 import { PLATFORM_IPC, type PlatformLocale } from './platform-ipc.ts'
@@ -42,7 +42,7 @@ type PlatformSender = { sender: object; senderFrame: Pick<WebFrameMain, 'url'> |
 export class DesktopPlatformView {
   private account: PlatformSession | null = null
   private view: AttachableView | undefined
-  private owner: (PlatformOwner & BrowserWindow) | undefined
+  private owner: (PlatformOwner & AttachableWindow) | undefined
   private releaseOwner: (() => void) | undefined
   private generation = 0
   private readonly storageCleanup = new Map<Session, Promise<{ error: unknown } | null>>()
@@ -77,7 +77,7 @@ export class DesktopPlatformView {
    * @param bounds - owned renderer rectangle.
    * @returns when loading finishes, or without a document when superseded or the owner closes or navigates.
    */
-  async open(owner: PlatformOwner & BrowserWindow, page: 'usage' | 'top-up', bounds: PlatformBounds): Promise<void> {
+  async open(owner: PlatformOwner & AttachableWindow, page: 'usage' | 'top-up', bounds: PlatformBounds): Promise<void> {
     if (this.disposed) throw new Error('Platform view disposed')
     this.close()
     const account = this.account
