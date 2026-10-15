@@ -13,7 +13,7 @@ import { packagingStep } from './packaging-step.mjs'
 import { preparePrimaryRuntime, resolvePrimaryRuntimeTarget } from './prepare-primary-runtime.ts'
 import { prepareDesktopCli } from './prepare-cli.ts'
 import { prepareCommandLink } from './prepare-command-link.ts'
-import { installWin7CompatRuntime } from '../win7/install-compat-runtime.ts'
+import { installWin7CompatRuntime } from '../src/win7/install-compat-runtime.ts'
 import { win7Profile } from '../win7/profile.mjs'
 
 const BUILD_PATHS = resolveDesktopTargetBuildPaths()

@@ -4,8 +4,8 @@ import { createHash, randomUUID } from 'node:crypto'
 import { session, shell, type Session, type WebFrameMain } from 'electron'
 import { mergePlatformCookies, platformClientHeaders, type PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { desktopClientMetadata } from './client-metadata.ts'
-import { createAttachableView, type AttachableWindow, type AttachableView } from '../win7/electron/view-adapter.ts'
-import { closeAllConnectionsCompat } from '../win7/electron/api-compat.ts'
+import { createAttachableView, type AttachableWindow, type AttachableView } from './win7/view-adapter.ts'
+import { closeAllConnectionsCompat } from './win7/api-compat.ts'
 
 import { PLATFORM_IPC, type PlatformLocale } from './platform-ipc.ts'
 

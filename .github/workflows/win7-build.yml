@@ -51,6 +51,15 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
+      # Electron 22 + Node 16 + Python 3.8 + the cp38 wheels land here once and
+      # are hash-verified by the runtime builder, so later runs skip ~230 MB of
+      # downloads and start building immediately.
+      - name: Cache the runtime downloads
+        uses: actions/cache@v4
+        with:
+          path: .desktop-build/downloads
+          key: win7-runtime-downloads-v1-${{ runner.os }}
+
       - name: Show the payload the build will use
         shell: pwsh
         run: |

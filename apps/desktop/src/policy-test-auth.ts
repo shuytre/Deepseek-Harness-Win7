@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { BrowserWindow, session } from 'electron'
 import type { DesktopLocale } from './locale.ts'
+import { closeAllConnectionsCompat } from './win7/api-compat.ts'
 
 /** Packaged placeholder document; it is the window's first document and needs no network. */
 const LOGIN_LOADING_PAGE = 'renderer/policy-login-loading.html'

@@ -171,7 +171,7 @@ function compatResponse(input: {
     headers: { get: input.headers },
     text: () => Promise.resolve(input.body.toString('utf8')),
     json: () => Promise.resolve(JSON.parse(input.body.toString('utf8')) as unknown),
-    arrayBuffer: () => Promise.resolve(input.body.buffer.slice(input.body.byteOffset, input.body.byteOffset + input.body.byteLength)),
+    arrayBuffer: () => Promise.resolve(new Uint8Array(input.body).buffer as ArrayBuffer),
     body: { cancel: () => Promise.resolve() },
   }
 }
@@ -212,10 +212,13 @@ export function applyTitleBarOverlayCompat(
  * @param contents - Contents being torn down.
  */
 export function closeWebContentsCompat(contents: WebContents): void {
-  const candidate = contents as WebContents & { close?: (options?: { waitForBeforeUnload?: boolean }) => void }
+  const candidate = contents as unknown as {
+    close?: (options?: { waitForBeforeUnload?: boolean }) => void
+    destroy?: () => void
+  }
   try {
     candidate.close?.({ waitForBeforeUnload: false })
   } catch {
-    contents.destroy()
+    candidate.destroy?.()
   }
 }

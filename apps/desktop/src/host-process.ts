@@ -4,7 +4,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { desktopNodeEnvironment } from './node-environment.ts'
-import { resolveChildWin7Compat, win7ModuleRootEnvironment } from '../win7/electron/launch-compat.ts'
+import { resolveChildWin7Compat, win7ModuleRootEnvironment } from './win7/launch-compat.ts'
 
 interface ReadyEvent {
   readonly type: 'ready'

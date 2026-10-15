@@ -9,9 +9,9 @@
 
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { WIN7_COMPAT_DIRECTORY, win7Profile } from './profile.mjs'
+import { WIN7_COMPAT_DIRECTORY, win7Profile } from '../../win7/profile.mjs'
 
-const COMPAT_SOURCE = resolve(import.meta.dirname, 'compat')
+const COMPAT_SOURCE = resolve(import.meta.dirname, '..', '..', 'win7', 'compat')
 
 /** A file the Host process must be able to require or load. */
 export interface Win7CompatInstallation {

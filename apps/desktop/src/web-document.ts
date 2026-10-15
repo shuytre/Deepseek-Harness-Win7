@@ -1,7 +1,7 @@
 /** Local Web document and authenticated HTTP forwarding for the application window. */
 import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
-import { WIN7_BOOT_POLYFILL_SOURCE } from '../win7/polyfills/boot-polyfill.ts'
+import { WIN7_BOOT_POLYFILL_SOURCE } from './win7/boot-polyfill.ts'
 
 const MIME: Readonly<Record<string, string>> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',

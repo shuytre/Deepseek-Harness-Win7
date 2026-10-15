@@ -37,9 +37,7 @@ import { DesktopCommandManager } from './command-management.ts'
 import { serveWebDocument, authenticateWebHost, forwardWebRequest } from './web-document.ts'
 import { DesktopFatalRecovery } from './fatal-recovery.ts'
 import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashReportSource } from './crash-report.ts'
-import {
-  applyTitleBarOverlayCompat, closeAllConnectionsCompat, createCompatFetch, loadWin7MainProcessPolyfills,
-} from '../win7/electron/api-compat.ts'
+import { applyTitleBarOverlayCompat, createCompatFetch, loadWin7MainProcessPolyfills } from './win7/api-compat.ts'
 
 // The Windows 7 track runs this bundle under Electron 22's Node 16, which lacks
 // Promise.withResolvers, AbortSignal.any, structuredClone, fs.globSync and the
