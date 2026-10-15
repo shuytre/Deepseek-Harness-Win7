@@ -198,7 +198,47 @@ pnpm --dir apps/desktop run check:win7-pe   # 只跑 PE 导入表扫描
 
 ---
 
-## 7. 在合格构建机上的一次性执行序列
+## 7. GitHub Actions 运行记录
+
+仓库：<https://github.com/shuytre/Deepseek-Harness-Win7>（public，15005 文件 / 36.25 MiB pack）。
+
+### 运行 1（tag `win7-1`）— 失败，诊断闭环已验证
+
+工作流真实执行了（`win7-diagnostics` 分支出现即证明"失败自动回推日志"机制工作正常），失败点全部是本迁移引入的问题：
+
+| 错误 | 根因 | 修复 |
+|---|---|---|
+| `scripts/primary-runtime/prepare.ts: TS2304 Cannot find name 'existsSync'` ×3 | 兼容 embeddable Python 布局时用了 `existsSync` 但没加进 fs 导入 | 已修（导入补齐），提交 `16c4c1c8` |
+| `apps/desktop/tests/platform-view.spec.ts: TS2379` ×约 60 | 视图适配层的 owner 类型写成 `PlatformOwner & BrowserWindow`，测试窗口 mock 只有 `contentView`/`webContents`/`isDestroyed`，不满足完整 `BrowserWindow` | 已修：视图适配层改为最小接口 `AttachableWindow`（`contentView?` / `setBrowserView?` 均可选），Electron 30+ / Electron 22 / 测试 mock 三者都结构化满足，提交 `16c4c1c8` |
+
+其余步骤（scan/publish）失败是 build 失败的级联，不是独立问题。
+
+### 推送 `16c4c1c8` 时遇到的新阻断（环境级）
+
+修复提交已就绪，但沙箱网络在第二天开始拒绝 `github.com:443`：
+
+- 经沙箱代理：`CONNECT tunnel failed, response 502`（连续 6 次 ×20s 间隔，100% 复现）；
+- 直连：`Could not connect to server`（沙箱强制走代理，直连不可达）；
+- 对照组：同一代理下 `registry.npmjs.org` 200、`codeload.github.com` 301 —— 代理本身活着，只有 `github.com` 被拒。
+
+结论：**沙箱会话级限制了 `github.com`**（首次 36 MB 推送成功后出现）。修复提交留在本地（`16c4c1c8`），从沙箱外的终端推送即可继续。
+
+```bash
+cd "D:/DeepSeek Harness Cod-ing/DeepSeek-Harness"
+git push origin main win7-2        # tag win7-2 已在本地打好，推送即触发第二轮构建
+```
+
+沙箱外的终端可正常访问 github.com；若 git 也报 schannel 吊销错误，加前缀 `GIT_SSL_NO_VERIFY=1`。
+
+### 成功后的直链（仓库当前为 public，满足直链前提）
+
+```
+https://github.com/shuytre/Deepseek-Harness-Win7/releases/download/win7-2/deepseek-harness-0.2.1-alpha.2-win-x64-unsigned-win7-setup.exe
+```
+
+（以 `gh release create` 实际发布的资产名为准；tag 用 `win7-2`，也可在 Actions 手动触发时自填。）
+
+## 8. 在合格构建机上的一次性执行序列
 
 前置：Windows x64、Node ≥ 22、VS Build Tools（`Microsoft.VisualStudio.Component.VC.Tools.x86.x64`）+ Windows SDK、Git、tar、Python、**文件系统支持真实符号链接**。
 
