@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "profile": {
+    "enabled": true,
+    "electronVersion": "22.3.27",
+    "nodeVersion": "16.20.2",
+    "pythonVersion": "3.8.10",
+    "buildHostNodeMajor": 22
+  },
+  "signed": false,
+  "steps": [
+    {
+      "name": "build",
+      "command": "pnpm.cmd run build",
+      "code": 1,
+      "seconds": 325,
+      "log": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\.desktop-build\\win7-build\\build.log",
+      "required": true
+    },
+    {
+      "name": "package",
+      "command": "pnpm.cmd --dir apps/desktop run package:win:x64:unsigned",
+      "code": 1,
+      "seconds": 47,
+      "log": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\.desktop-build\\win7-build\\package.log",
+      "required": true
+    },
+    {
+      "name": "scan",
+      "code": 2,
+      "detail": "no packaged application directory under D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\.desktop-build\\targets\\win-x64"
+    },
+    {
+      "name": "publish",
+      "code": 1,
+      "detail": "no *win7*setup.exe artifact found"
+    }
+  ],
+  "installed": []
+}
