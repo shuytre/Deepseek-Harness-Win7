@@ -36,7 +36,7 @@ const STYLESHEET_TARGETS = win7BuildEnabled() ? win7LightningTargets() : undefin
 const SYNTAX_TARGET = win7BuildEnabled() ? 'es2022' : 'es2024'
 
 /** Values the Windows 7 expansion could not resolve; reported once at build end. */
-const unresolvedColorValues = new Map<string, UnresolvedColor[]>()
+const unresolvedColorValues = new Map<string, Array<{ file: string, property: string, value: string }>>()
 
 /**
  * Compile one stylesheet.
@@ -49,11 +49,7 @@ const unresolvedColorValues = new Map<string, UnresolvedColor[]>()
  * @param options - CSS-modules flag.
  * @returns lightningcss output plus CSS-modules exports.
  */
-function compileStylesheet(
-  fileId: string,
-  source: Buffer,
-  options: { readonly cssModule: boolean },
-): { code: Uint8Array, exports?: Record<string, { name: string }> } {
+function compileStylesheet(fileId: string, source: Buffer, options: { readonly cssModule: boolean }) {
   const css = source.toString('utf8')
   let input = css
   if (STYLESHEET_TARGETS !== undefined) {

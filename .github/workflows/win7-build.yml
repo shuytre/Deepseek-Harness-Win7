@@ -80,7 +80,8 @@ jobs:
             'DSH_DESKTOP_APP_ID=com.deepseek.harness'
             'DSH_DESKTOP_AUTO_UPDATE_ENV=test'
             "DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN=$origin"
-            'DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN=https://example.invalid'
+            'DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN=https://example.invalid',
+            'DSH_DESKTOP_MANDATORY_UPDATE_CONFIG={"allowedAuthOrigins":["https://example.invalid","https://login.example.com"]}'
           )
           Set-Content -Path apps/desktop/.env.windows -Value $lines -Encoding utf8
 
