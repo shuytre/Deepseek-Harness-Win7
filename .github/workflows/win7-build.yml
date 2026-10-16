@@ -68,6 +68,22 @@ jobs:
           Write-Host "node: $(node -v)"
           Write-Host "free space:"; Get-PSDrive D | Select-Object Used,Free
 
+      # The packaging pipeline reads release settings from this git-ignored file;
+      # an unsigned CI build needs the app id, the update channel and a
+      # syntactically valid mandatory-update origin.
+      - name: Write the unsigned packaging environment
+        shell: pwsh
+        run: |
+          $origin = '${{ vars.DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN }}'
+          if ([string]::IsNullOrWhiteSpace($origin)) { $origin = 'https://example.invalid' }
+          $lines = @(
+            'DSH_DESKTOP_APP_ID=com.deepseek.harness'
+            'DSH_DESKTOP_AUTO_UPDATE_ENV=test'
+            "DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN=$origin"
+            'DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN=https://example.invalid'
+          )
+          Set-Content -Path apps/desktop/.env.windows -Value $lines -Encoding utf8
+
       - name: Install pnpm
         shell: pwsh
         run: |

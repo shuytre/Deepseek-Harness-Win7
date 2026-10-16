@@ -10,7 +10,8 @@
 import { existsSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { WIN7_COMPAT_DIRECTORY } from '../../win7/profile.mjs'
+/** Directory name of the compatibility runtime; kept in sync with win7/profile.mjs. */
+const WIN7_COMPAT_DIRECTORY = 'win7-compat'
 
 /** Compatibility runtime location for one primary-runtime path. */
 export interface Win7ChildCompat {

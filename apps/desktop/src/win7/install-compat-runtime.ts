@@ -9,7 +9,9 @@
 
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { WIN7_COMPAT_DIRECTORY, win7Profile } from '../../win7/profile.mjs'
+/** Directory name of the compatibility runtime; kept in sync with win7/profile.mjs. */
+const WIN7_PROFILE_ENV = 'DSH_TARGET_WIN7'
+const WIN7_COMPAT_DIRECTORY = 'win7-compat'
 
 const COMPAT_SOURCE = resolve(import.meta.dirname, '..', '..', 'win7', 'compat')
 
@@ -30,7 +32,10 @@ export function installWin7CompatRuntime(
   runtimeDirectory: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Win7CompatInstallation | undefined {
-  if (!win7Profile(env).enabled) return undefined
+  // The track switch is read directly here: this module also runs from build
+  // scripts, where importing the profile module would put a .mjs reference
+  // inside the compiled declaration output.
+  if (env[WIN7_PROFILE_ENV] !== '1') return undefined
   if (!existsSync(COMPAT_SOURCE)) throw new Error(`win7 compat: source directory is missing at ${COMPAT_SOURCE}`)
   const directory = join(runtimeDirectory, WIN7_COMPAT_DIRECTORY)
   rmSync(directory, { recursive: true, force: true })
