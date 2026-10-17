@@ -12,10 +12,19 @@
  *     (a token defined in the theme stylesheets, a hex/rgb literal, or
  *     `transparent`). Anything else is left verbatim and reported, so a human
  *     sees the exact declaration that still needs attention.
- *   - The original declaration stays in place, so modern engines keep the
- *     authored value and only Chromium 108 consumes the emitted fallback.
+ *   - The literal REPLACES the authored value. A preceding same-property
+ *     fallback cannot survive: lightningcss deletes it for color properties
+ *     and for custom properties alike (a later `color-mix()` wins the
+ *     duplicate-declaration fold), which would leave Chromium 108 with the
+ *     unsupported function and no literal at all.
  *   - A dark-theme override is emitted only when the dark value differs, using
  *     the repository's established `:global(body[data-ds-dark-theme])` form.
+ *     A rule already scoped to the dark theme expands against the dark tokens
+ *     itself, and selectors anchored at `:root`/`html`/`body` never match the
+ *     prefixed form, so neither gets an override.
+ *   - `@keyframes` children are keyframe selectors, not style selectors: they
+ *     keep the literal (the animation's color on Chromium 108) and never carry
+ *     the theme prefix, which would be a dangling combinator.
  */
 
 import { readFileSync, readdirSync } from 'node:fs'
@@ -56,11 +65,11 @@ export function readThemeTokens(themeStyleDirectory) {
 /**
  * Split a stylesheet into `selector { body }` pairs, ignoring comments.
  * @param {string} css - Stylesheet text.
- * @returns {Array<{ selector: string, body: string }>} Top-level rules.
+ * @returns {Array<{ selector: string, body: string, keyframe: boolean }>} Top-level rules; `keyframe` marks a rule collected inside `@keyframes`.
  */
 function splitRules(css) {
   const rules = []
-  collectRules(css, rules)
+  collectRules(css, rules, false)
   return rules
 }
 
@@ -69,10 +78,14 @@ function splitRules(css) {
  *
  * Declarations nested in `@media`, `@supports` or `@layer` must expand too, so
  * the at-rule wrapper is skipped and its children are collected in place.
+ * `@keyframes` blocks are descended into as well, but their children are
+ * keyframe selectors (`from`, `to`, `50%`), not style-rule selectors — they are
+ * flagged so the dark-theme override below never prefixes one.
  * @param {string} css - Text to scan.
- * @param {Array<{ selector: string, body: string }>} rules - Accumulator.
+ * @param {Array<{ selector: string, body: string, keyframe: boolean }>} rules - Accumulator.
+ * @param {boolean} inKeyframes - Whether `css` is the body of a `@keyframes` at-rule.
  */
-function collectRules(css, rules) {
+function collectRules(css, rules, inKeyframes) {
   let depth = 0
   let start = 0
   let selectorEnd = -1
@@ -86,8 +99,10 @@ function collectRules(css, rules) {
       if (depth === 0 && selectorEnd >= 0) {
         const selector = css.slice(start, selectorEnd).trim()
         const body = css.slice(selectorEnd + 1, index)
-        if (selector.startsWith('@')) collectRules(body, rules)
-        else rules.push({ selector, body })
+        if (selector.startsWith('@')) {
+          const keyframes = /^@(?:-[a-z]+-)?keyframes/iu.test(selector)
+          collectRules(body, rules, inKeyframes || keyframes)
+        } else rules.push({ selector, body, keyframe: inKeyframes })
         start = index + 1
         selectorEnd = -1
       }
@@ -375,19 +390,28 @@ export function expandModernColors(input, options) {
   if (rules.length === 0) return { css: input, unresolved }
   let output = source
   // Custom properties a stylesheet defines for itself (a computed token that is
-  // itself a color-mix) join the theme tokens for this file.
-  const localTokens = new Map()
+  // itself a color-mix) join the theme tokens for this file. Light- and
+  // dark-scoped definitions stay apart: one file may define the same property
+  // for both themes, and a merged map would hand the dark value to light rules.
+  const localLight = new Map()
+  const localDark = new Map()
   for (const rule of rules) {
+    const target = rule.selector.includes('data-ds-dark-theme') ? localDark : localLight
     for (const match of rule.body.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/giu)) {
-      if (match[1] !== undefined && match[2] !== undefined) localTokens.set(match[1], match[2].trim())
+      if (match[1] !== undefined && match[2] !== undefined) target.set(match[1], match[2].trim())
     }
   }
-  const tokens = localTokens.size === 0 ? options.tokens : {
-    light: new Map([...options.tokens.light, ...localTokens]),
-    dark: new Map([...options.tokens.dark, ...localTokens]),
+  const tokens = {
+    light: new Map([...options.tokens.light, ...localLight]),
+    // A dark rule inherits light-scope definitions the cascade has not rebound,
+    // so the light locals stay underneath the theme's own dark values.
+    dark: new Map([...localLight, ...options.tokens.dark, ...localDark]),
   }
   for (const rule of rules) {
     if (!/color-mix\(|light-dark\(/iu.test(rule.body)) continue
+    // A rule already scoped to the dark theme carries its own dark values: it
+    // expands against the dark tokens and needs no override of its own.
+    const isDarkRule = rule.selector.includes('data-ds-dark-theme')
     const declarations = []
     const darkDeclarations = []
     for (const declaration of rule.body.split(';')) {
@@ -402,8 +426,8 @@ export function expandModernColors(input, options) {
         declarations.push(`${property}: ${value}`)
         continue
       }
-      const light = expandValue(value, tokens.light)
-      const dark = expandDarkValue(value, tokens.dark)
+      const light = expandValue(value, isDarkRule ? tokens.dark : tokens.light)
+      const dark = isDarkRule ? undefined : expandDarkValue(value, tokens.dark)
       if (light === undefined) {
         unresolved.push({ file: options.file, property, value })
         declarations.push(`${property}: ${value}`)
@@ -411,7 +435,6 @@ export function expandModernColors(input, options) {
       }
       declarations.push(`${property}: ${light}`)
       if (dark !== undefined && dark !== light) darkDeclarations.push(`${property}: ${dark}`)
-      declarations.push(`${property}: ${value}`)
       changed = true
     }
     const replacement = `${rule.selector}{${declarations.join(';')};}`
@@ -426,7 +449,13 @@ export function expandModernColors(input, options) {
       continue
     }
     output = output.replace(search, () => replacement)
-    if (darkDeclarations.length > 0) {
+    // The override prefix is a descendant combinator, so it can only rebind
+    // rules the dark scope can actually contain: a keyframe selector, and a
+    // selector anchored at `:root`/`html`/`body`, both never match it.
+    const prefixable = rule.keyframe !== true
+      && !isDarkRule
+      && !/^\s*(?::root|html|body)\b/u.test(rule.selector)
+    if (darkDeclarations.length > 0 && prefixable) {
       const prefix = options.cssModule
         ? `:global(body[data-ds-dark-theme]) ${rule.selector}`
         : `body[data-ds-dark-theme] ${rule.selector}`

@@ -82,8 +82,8 @@ Windows 7 SP1 x64 迁移的执行记录。规则：**已验证的事实标出处
 
 | 组件 | 实测方式 | 结果 |
 |---|---|---|
-| `color-mix()` / `light-dark()` 展开器 | 对 `packages/client` 下全部 202 个 CSS 文件实际跑 `expandModernColors()` | 含现代颜色函数的文件 **25 个**、作者写法出现 **88 次**、**未解析 0 次**；主题 token 解析出 **429 条**（浅色/深色各 429） |
-| 暗色覆盖生成 | 同上 | 生成 **60** 条 `:global(body[data-ds-dark-theme])` 覆盖规则（仅当暗色值与浅色值不同才生成） |
+| `color-mix()` / `light-dark()` 展开器 | 对全仓 219 个 CSS 文件实际跑 `expandModernColors()` + lightningcss `transform({ targets: { chrome: 108 << 16 } })` | 含现代颜色函数的文件 **25 个**、作者写法出现 **88 次**、**未解析 0 次**；主题 token 解析出 **429 条**（浅色/深色各 429）；219 个文件全部编译通过（修复 `@keyframes` 关键帧被误加暗色前缀的解析错误后） |
+| 暗色覆盖生成 | 同上 | 生成 **60** 条 `:global(body[data-ds-dark-theme])` 覆盖规则（仅当暗色值与浅色值不同才生成；暗色作用域规则、`:root`/`html`/`body` 锚定选择器、关键帧选择器均不发） |
 | Node 16 归档完整性 | 下载后 `sha256sum` 与 nodejs.org `SHASUMS256.txt` 比对 | **逐字节一致** |
 | 新增脚本语法 | 对全部新增 `.mjs` / `.cjs` 跑 `node --check` | 全部通过 |
 | 新增相对导入 | 静态扫描 17 个改动文件的相对 import 并校验目标存在 | 全部可解析 |
@@ -126,7 +126,7 @@ Windows 7 SP1 x64 迁移的执行记录。规则：**已验证的事实标出处
 | W2 | `titleBarOverlay` 在 E22 的可用性 | `需验证` | 同上，查 `BrowserWindowConstructorOptions.titleBarOverlay` 是否存在于 22.3.27 的 d.ts；不存在则用项目自绘 40-DIP 标题栏替代（`windows-layout.ts` 已有高度常量） |
 | W3 | `--experimental-loader` 在 Electron Node 模式下的可用性 | `需验证` | 真机跑 `dsh --version`（走 `cli/dsh.cmd`）与 Desktop 启动；若 Electron 拦截该 flag，改用 `--require` 注册 `module.register`（Node 16 无 `module.register`，届时需改为在 Host 入口顶部动态 `import()` shim 并 monkey-patch `Module._resolveFilename`） |
 | W4 | koffi 3.1.1 / node-pty 1.2.0-beta.15 / ripgrep / LibreOffice 引擎的 Win7 兼容性 | `需验证` | 跑 `pnpm --dir apps/desktop run check:win7-pe`（PE 导入表扫描，已实现）→ 对命中项逐个降级；ripgrep 自 Rust 1.78 起 `*-pc-windows-msvc` 最低 Win10，需换 Rust<1.78 构建或自建 `x86_64-win7-windows-msvc` |
-| W5 | `color-mix()` 展开的覆盖率 | **已实测**：25 个文件、88 处、0 未解析、生成 60 条暗色覆盖（见 §1.5） | 新出现的写法会重新落入 `unresolved`，由构建日志报告 |
+| W5 | `color-mix()` 展开的覆盖率 | **已实测**：25 个文件、88 处、0 未解析、生成 60 条暗色覆盖（见 §1.5）；219 个 CSS 文件全部通过 `expandModernColors()` + lightningcss(chrome 108) 编译，26 条行为断言固化为 `scripts/win7/expand-modern-colors.spec.ts` | 新出现的写法会重新落入 `unresolved`，由构建日志报告 |
 | W6 | Chromium 108 视觉快照对比 | 待执行 | 用 Electron 22 壳加载同一份 UI 产物，截 Full-HD 与 Win10 轨对比 |
 | W7 | 安装器在无 DWM 的 Win7 上实际外观 | 待执行 | Win7 切"Windows 经典"主题跑一次安装/卸载；`test:installer` 需交互桌面 |
 | W8 | 三个 spec 需按轨更新 | 待处理 | `runtime-preparation.spec.ts`（`versions.json` 精确断言）、`prepare-runtime-patches.spec.ts`（override 合并）、`test-windows-installer.mjs`（浮层断言）；当前只在 Win7 轨改变行为，普通轨断言不变 |
@@ -142,7 +142,7 @@ Windows 7 SP1 x64 迁移的执行记录。规则：**已验证的事实标出处
 | 项 | Win10 轨 | Win7 轨 | 影响 |
 |---|---|---|---|
 | 自动更新 | electron-updater + blockmap | **关闭**（`publish: null`） | 无在线升级，需手动换包 |
-| `color-mix()` | 原生 | 构建期展开为字面色值 | 视觉等价（同 token 计算），非等价处会在构建日志报告 |
+| `color-mix()` | 原生 | 构建期展开为字面值（**直接替换**原声明，不回显 `color-mix()`），暗色值由独立的 `body[data-ds-dark-theme]` 覆盖规则承载 | 视觉等价（同 token 计算），非等价处会在构建日志报告；`@keyframes` 内的关键帧只拿亮色字面量（暗色覆盖无法前缀关键帧选择器），动画环色在暗色下取亮色值 |
 | `field-sizing: content` | 原生 | 不生效（Chromium 123+） | 3 个文件：输入框宽度不自适应，有既有回退路径 |
 | `scrollbar-color` | 原生 | 回退 `auto` | 3 个文件：滚动条配色回系统默认（`-webkit-scrollbar` 路径仍在） |
 | `light-dark()` | 原生 | 构建期展开 | ZoomControls 阴影取浅色值 |
@@ -230,13 +230,39 @@ git push origin main win7-2        # tag win7-2 已在本地打好，推送即�
 
 沙箱外的终端可正常访问 github.com；若 git 也报 schannel 吊销错误，加前缀 `GIT_SSL_NO_VERIFY=1`。
 
+### 运行 2–4（tag `win7-2` / `win7-3` / `win7-4`）— 失败，逐轮修复
+
+推送阻断后来通过本机反向代理（Watt Toolkit + hosts 指向 127.0.0.1 + `GIT_SSL_NO_VERIFY=1`）解决，`api.github.com` 的 HTTP 层被墙但 `git push` 走该代理可用。
+
+| 轮次 | 失败 | 根因 | 修复 |
+|---|---|---|---|
+| 2 | 仍 TS2379 ×60 | 修复未生效/类型仍过严 | 提交 `16c4c1c8` 把 owner 类型放宽到最小接口 |
+| 3 | `TS6059/TS6307`：`win7/` 在 `rootDir: src` 之外；`main.ts` 未用导入；`policy-test-auth` 漏导入；`api-compat` 类型 | 编译产物目录与 tsconfig `rootDir` 冲突 + 导入遗漏 | 6 个 `.ts` 移入 `apps/desktop/src/win7/`；补/删导入；收窄类型，提交 `03d60bbe` |
+| 4 | `UNRESOLVED_IMPORT '../../win7/profile.mjs'`（tsdown dts 解析不到 src 外 `.mjs`）；打包缺 `.env.windows` | dts 生成只认 src 内模块；工作流没写构建 env | 常量内联（`launch-compat` / `install-compat-runtime` 不再 import `.mjs`）；工作流生成 `.env.windows`，提交 `0f73c135` |
+| 5 | `TS2304 UnresolvedColor`；`TS2322` TransformResult 不匹配；`test policy requires nonempty allowedAuthOrigins` | 内联类型写法 + 缺强制更新配置 env | 内联类型改返回类型推断；工作流补 `DSH_DESKTOP_MANDATORY_UPDATE_CONFIG`，提交 `08cbf8a1` |
+
+### 运行 5 后半段（tag `win7-5`）— 失败在 `build:lib`，本轮修复
+
+build/package 前 4 类错误全部通过后，卡在客户端 CSS 管线（`packages/client/tsdown.client.ts` 的 `dsh-css-modules-inline` 插件）：
+
+| 错误 | 根因 | 修复 |
+|---|---|---|
+| `SyntaxError: Invalid dangling combinator in selector`（lightningcss 1.33） | 暗色覆盖生成器给 `@keyframes` 里的关键帧选择器（`0%, 55%`）加了 `body[data-ds-dark-theme]` 前缀 | `collectRules` 递归进 at-rule 时标记关键帧规则，暗色覆盖跳过它们 |
+| （同一文件复现出来的第二个坑，本机实测确认）`color: #6e7278; color: color-mix(...)` 的前置字面量被 lightningcss **删除** | lightningcss 的重复声明折叠：后一条 `color-mix()` 让前一条同属性声明（含自定义属性）整体消失，Chromium 108 上颜色直接丢失 | 改为**字面量直接替换**原值，不再回显；暗色值由独立的 `body[data-ds-dark-theme]` 覆盖规则承载 |
+| （第三个坑，实测确认）主题文件 `design-platform.css` 亮/暗两个 `body` 块定义同名 token 时，合并的局部 token 表把暗色值喂给亮色规则 | 局部自定义属性未按作用域分离 | 局部 token 拆成 `localLight` / `localDark`，暗色映射按 `localLight → theme.dark → localDark` 优先级合并 |
+| （第四个坑）已处于 `body[data-ds-dark-theme]` 作用域的规则被二次加前缀，产出永不匹配的死规则 | 暗色规则也用亮色 token 展开 + 无脑发覆盖 | 暗色作用域规则改用暗色 token 展开且不发覆盖；`:root`/`html`/`body` 锚定的选择器同样不发（前缀是后代组合器，永远匹配不到） |
+
+本机复现方式（无符号链接也能跑）：对 219 个 CSS 文件逐个执行 `expandModernColors()` + lightningcss `transform({ targets: { chrome: 108 << 16 } })`，修复前 1 处解析失败、修复后 0 处；另对全部 26 条行为断言（回退对、暗色覆盖、关键帧、局部 token 分离、`@media` 嵌套、未解析上报等）逐条验证通过，并固化为 `scripts/win7/expand-modern-colors.spec.ts` 回归测试。
+
+补充实测：`@property`（`DesktopOnboarding.module.css` 的 `initial-value: 90deg`）不含颜色函数，无需处理；`window-material.css` 的 `@media (prefers-color-scheme: dark)` 块操作数是字面 `rgb()`，用哪张 token 表结果一致。
+
 ### 成功后的直链（仓库当前为 public，满足直链前提）
 
 ```
-https://github.com/shuytre/Deepseek-Harness-Win7/releases/download/win7-2/deepseek-harness-0.2.1-alpha.2-win-x64-unsigned-win7-setup.exe
+https://github.com/shuytre/Deepseek-Harness-Win7/releases/download/win7-6/deepseek-harness-0.2.1-alpha.2-win-x64-unsigned-win7-setup.exe
 ```
 
-（以 `gh release create` 实际发布的资产名为准；tag 用 `win7-2`，也可在 Actions 手动触发时自填。）
+（以 `gh release create` 实际发布的资产名为准；tag 用 `win7-6`，也可在 Actions 手动触发时自填。）
 
 ## 8. 在合格构建机上的一次性执行序列
 
