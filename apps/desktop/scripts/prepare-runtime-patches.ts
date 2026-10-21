@@ -83,12 +83,89 @@ export function prepareRuntimePatches(
       throw new Error(`desktop patches: conflicting dependency override for ${name}`)
     }
   }
+  // pnpm 10.16+ reads overrides and patched dependencies from pnpm-workspace.yaml;
+  // pnpm 8 - which the Windows 7 track stages - reads them from the project
+  // manifest's `pnpm` field only. Writing both keeps every track identical.
+  const manifestPath = join(projectRoot, 'package.json')
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown> & { pnpm?: Record<string, unknown> }
+  const manifestPnpm = manifest.pnpm ?? {}
+  const manifestOverrides = (manifestPnpm.overrides ?? {}) as Record<string, string>
+  const manifestPatched = (manifestPnpm.patchedDependencies ?? {}) as Record<string, string>
+  for (const [name, version] of Object.entries(overrides)) {
+    if (manifestOverrides[name] !== undefined && manifestOverrides[name] !== version) {
+      throw new Error(`desktop patches: conflicting dependency override for ${name}`)
+    }
+  }
+  const selectedPatches = Object.fromEntries(selected.map(entry => [entry.spec, entry.path]))
+  for (const [spec, path] of Object.entries(selectedPatches)) {
+    if (manifestPatched[spec] !== undefined && manifestPatched[spec] !== path) {
+      throw new Error(`desktop patches: conflicting patched dependency for ${spec}`)
+    }
+  }
   mkdirSync(join(projectRoot, 'patches'), { recursive: true })
   for (const entry of selected) writeFileSync(join(projectRoot, entry.path), entry.bytes)
   writeFileSync(targetPath, yaml.dump({ ...target, overrides: { ...target.overrides, ...overrides },
-    patchedDependencies: Object.fromEntries(selected.map(entry => [entry.spec, entry.path])), allowUnusedPatches: false }))
+    patchedDependencies: { ...(target.patchedDependencies as Record<string, string> | undefined), ...selectedPatches },
+    allowUnusedPatches: false }))
+  writeFileSync(manifestPath, `${JSON.stringify({ ...manifest,
+    pnpm: { ...manifestPnpm, overrides: { ...manifestOverrides, ...overrides }, patchedDependencies: { ...manifestPatched, ...selectedPatches } },
+  }, undefined, 2)}\n`)
   return { patches: selected.map(({ bytes: _bytes, ...entry }) => entry),
     workspaceOnly: Object.entries(policy).filter(([, rule]) => rule.scope === 'workspace-only').map(([spec]) => patchIdentity(spec).name) }
+}
+
+/**
+ * Normalize one lockfile package key. pnpm 8 writes lockfile v6 keys with a
+ * leading slash (`/@scope/name@1.0.0`); pnpm 11's v9 keys carry none.
+ * @param spec - Raw lockfile package key.
+ * @returns Key without the version-6 leading slash.
+ */
+function lockPackageKey(spec: string): string {
+  return spec.startsWith('/') ? spec.slice(1) : spec
+}
+
+/**
+ * Read the version out of a lockfile package key, dropping pnpm's parenthesised
+ * suffixes: `(patch_hash=...)` and peer-dependency groups both trail the version.
+ * @param key - Normalized lockfile package key.
+ * @param name - Package name the key starts with.
+ * @returns Version text, or undefined when the key does not start with `name@`.
+ */
+function lockPackageVersion(key: string, name: string): string | undefined {
+  if (!key.startsWith(`${name}@`)) return undefined
+  const rest = key.slice(name.length + 1)
+  const parenthesis = rest.indexOf('(')
+  return parenthesis < 0 ? rest : rest.slice(0, parenthesis)
+}
+
+/** One lockfile's record of a patched dependency, across lockfile generations. */
+type LockPatchRecord =
+  | { readonly format: 'sha256', readonly hash: string }
+  | { readonly format: 'pnpm', readonly hash: string, readonly path: string }
+
+/**
+ * Read patched-dependency records from either lockfile generation.
+ *
+ * pnpm 11 (v9) maps `spec` to the patch file's sha256; pnpm 8 (v6) nests
+ * `{ hash, path }`, where the hash is pnpm's own digest rather than a sha256 -
+ * the staged bytes are re-hashed separately for that generation.
+ * @param lock - Parsed lockfile.
+ * @returns Records keyed by patch spec.
+ */
+function lockPatchedDependencies(lock: { patchedDependencies?: Record<string, unknown> }): Map<string, LockPatchRecord> {
+  const records = new Map<string, LockPatchRecord>()
+  for (const [spec, value] of Object.entries(lock.patchedDependencies ?? {})) {
+    if (typeof value === 'string') {
+      records.set(spec, { format: 'sha256', hash: value })
+      continue
+    }
+    if (value === null || typeof value !== 'object') continue
+    const entry = value as { hash?: unknown, path?: unknown }
+    if (typeof entry.hash === 'string' && typeof entry.path === 'string') {
+      records.set(spec, { format: 'pnpm', hash: entry.hash, path: entry.path })
+    }
+  }
+  return records
 }
 
 /**
@@ -98,27 +175,34 @@ export function prepareRuntimePatches(
  */
 export function verifyRuntimePatches(projectRoot: string, plan: PreparedRuntimePatches): void {
   const lock = yaml.load(readFileSync(join(projectRoot, 'pnpm-lock.yaml'), 'utf8')) as {
-    patchedDependencies?: Record<string, string>
+    patchedDependencies?: Record<string, unknown>
     packages?: Record<string, { version?: string }>
   }
+  const patched = lockPatchedDependencies(lock)
   for (const patch of plan.patches) {
-    if (!Object.keys(lock.packages ?? {}).some(spec => spec.startsWith(`${patch.name}@`))) {
+    if (!Object.keys(lock.packages ?? {}).some(spec => lockPackageKey(spec).startsWith(`${patch.name}@`))) {
       throw new Error(`desktop patches: selected patch has no runtime dependency: ${patch.spec}`)
     }
     if (patchHash(readFileSync(join(projectRoot, patch.path))) !== patch.hash) {
       throw new Error(`desktop patches: staged patch bytes changed: ${patch.spec}`)
     }
-    if (lock.patchedDependencies?.[patch.spec] !== patch.hash) {
-      throw new Error(`desktop patches: lockfile patch hash mismatch: ${patch.spec}`)
+    const record = patched.get(patch.spec)
+    if (record === undefined) throw new Error(`desktop patches: lockfile omits the patch: ${patch.spec}`)
+    if (record.format === 'sha256') {
+      if (record.hash !== patch.hash) throw new Error(`desktop patches: lockfile patch hash mismatch: ${patch.spec}`)
+    } else if (record.path !== patch.path || record.hash === '') {
+      // pnpm's own digest cannot be recomputed here; the staged bytes above carry the sha256 identity.
+      throw new Error(`desktop patches: lockfile patch record mismatch: ${patch.spec}`)
     }
   }
   for (const [spec, entry] of Object.entries(lock.packages ?? {})) {
-    if (plan.workspaceOnly.some(name => spec.startsWith(`${name}@`))) {
+    const key = lockPackageKey(spec)
+    if (plan.workspaceOnly.some(name => key.startsWith(`${name}@`))) {
       throw new Error(`desktop patches: workspace-only dependency entered the runtime: ${spec}; review its patch scope`)
     }
-    const candidates = plan.patches.filter(patch => spec.startsWith(`${patch.name}@`))
+    const candidates = plan.patches.filter(patch => key.startsWith(`${patch.name}@`))
     if (candidates.length === 0) continue
-    if (!candidates.some(patch => (entry.version ?? spec.slice(patch.name.length + 1)) === patch.version)) {
+    if (!candidates.some(patch => (entry.version ?? lockPackageVersion(key, patch.name)) === patch.version)) {
       throw new Error(`desktop patches: ${spec} has no matching patch; review its version and Desktop patch policy`)
     }
   }

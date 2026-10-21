@@ -135,7 +135,10 @@ async function main(): Promise<void> {
       readFileSync(join(BUILD_ROOT, 'pnpm-lock.yaml'), 'utf8'),
       readDesktopCorePackageSet(BUILD_ROOT, release.version),
     )
-    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:install', () => runPnpm(['install', '--prod', '--frozen-lockfile', '--trust-lockfile']))
+    // pnpm 10 introduced --trust-lockfile for the v9 lockfile's integrity
+    // field; the Windows 7 track stages pnpm 8, which rejects the flag outright.
+    const trustLockfile = Number.parseInt(release.pnpmVersion, 10) >= 10 ? ['--trust-lockfile'] : []
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:install', () => runPnpm(['install', '--prod', '--frozen-lockfile', ...trustLockfile]))
     const packageSet = readDesktopCorePackageSet(BUILD_ROOT, release.version)
     const targetName = resolveDesktopBuildTarget()
     const target = { platform: process.platform, arch: desktopTargetPlatform(targetName).arch }

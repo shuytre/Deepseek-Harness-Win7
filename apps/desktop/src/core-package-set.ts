@@ -172,8 +172,10 @@ export function verifyDesktopCoreLockfile(
   packageSet: DesktopCorePackageSet,
 ): void {
   for (const record of packageSet.packages) {
+    // pnpm 8 writes lockfile v6 package keys with a leading slash; pnpm 11's v9
+    // keys carry none, so the optional `/` keeps both generations checked.
     const registryResolution = new RegExp(
-      `^  ['"]?${escapeRegExp(record.name)}@${escapeRegExp(record.version)}(?:\\([^\\r\\n]*\\))?['"]?:`,
+      `^  ['"]?/?${escapeRegExp(record.name)}@${escapeRegExp(record.version)}(?:\\([^\\r\\n]*\\))?['"]?:`,
       'mu',
     )
     if (registryResolution.test(lockfile)) {

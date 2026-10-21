@@ -302,13 +302,33 @@ ModuleNotFoundError: No module named 'numpy._core'
 
 仍未验证：prepare:runtime 之后的打包步骤（electron-builder NSIS + window-frame.dll 编译）在 win7 轨首次执行，run 8 见分晓。
 
+### 运行 8（tag `win7-8`）— Python 运行时全过，卡在 dsh 运行时安装的 pnpm 8 差异
+
+`win7-run.json` 记录：**build code 0（360 秒）**；package code 1（742 秒），失败在 `prepare:dsh` →
+`verifyRuntimePatches`：`selected patch has no runtime dependency: @earendil-works/pi-ai@1.0.2`。
+即 Python 冒烟之后的第一个新步骤。
+
+本机用 Node 16.20.2 + pnpm 8.15.9 复现并逐项实测（下载两个真实发行版），定位到 **pnpm 8 与 pnpm 11 的三处行为差异**：
+
+| # | pnpm 11（Win10 轨） | pnpm 8.15.9（Win7 轨，实测） | 修复 |
+|---|---|---|---|
+| 1 | 读 `pnpm-workspace.yaml` 的 `overrides` / `patchedDependencies` | **只读 package.json 的 `pnpm.overrides` / `pnpm.patchedDependencies`**（yaml 里的被静默忽略） | `prepareRuntimePatches` 把两者同时写进项目 package.json（实测 pnpm 11 两处并存无冲突） |
+| 2 | lockfile v9：包 key 无前导斜杠；`patchedDependencies` 是 `spec → sha256hex` 平铺映射 | lockfile v6：包 key 带**前导斜杠**（`/@scope/name@1.0.2(patch_hash=...)`）；`patchedDependencies` 是 `spec → {hash, path}` 嵌套、hash 为 pnpm 自己的摘要 | `verifyRuntimePatches` 归一化 key（剥前导斜杠）、版本提取剥 `(patch_hash=…)`/peer 后缀、补丁记录双格式兼容（v9 校验 sha256，v6 校验 path + 非空摘要，字节完整性仍由暂存文件 sha256 把关） |
+| 3 | 认识 `--trust-lockfile` | **不认识该 flag，直接报错退出** | `prepare-dsh.ts` 按 `release.pnpmVersion` 主版本条件传该 flag |
+
+连带修复：`verifyDesktopCoreLockfile` 的正则没考虑 v6 前导斜杠（会漏报"核心包走了 registry"），已补 `/?`。
+
+本机验证（真实函数 + 两个真实 pnpm）：把转译后的 `prepareRuntimePatches`/`verifyRuntimePatches` 跑在 Node16+pnpm8 与 Node22+pnpm11 两种安装上，11 条断言全过——package.json 获得 overrides/补丁、pnpm 8 解析到锁定的 1.0.2、**补丁真实打上**（安装产物与原始包逐字节不同）、v6 lockfile 校验通过、v9 lockfile 校验不回退、篡改暂存补丁被拒。另实测 pnpm 8 会执行 `allowUnusedPatches: false`（补丁没打上会直接失败），反向证明 CI 里 pi-ai 1.0.2 此前确实未打补丁、解析落到了 1.3.0。
+
+仍未验证：`runtime:install` 之后的 materialize / manifests / `smokePreparedRuntime`（会用暂存的 Node 16 跑 dsh CLI，pi-ai 1.0.2 的 `engines: node>=22.19` 在 Node 16 上的运行时行为首次接受检验）与 electron-builder 打包。
+
 ### 成功后的直链（仓库当前为 public，满足直链前提）
 
 ```
-https://github.com/shuytre/Deepseek-Harness-Win7/releases/download/win7-8/deepseek-harness-0.2.1-alpha.2-win-x64-unsigned-win7-setup.exe
+https://github.com/shuytre/Deepseek-Harness-Win7/releases/download/win7-9/deepseek-harness-0.2.1-alpha.2-win-x64-unsigned-win7-setup.exe
 ```
 
-（以 `gh release create` 实际发布的资产名为准；tag 用 `win7-8`，也可在 Actions 手动触发时自填。）
+（以 `gh release create` 实际发布的资产名为准；tag 用 `win7-9`，也可在 Actions 手动触发时自填。）
 
 ## 8. 在合格构建机上的一次性执行序列
 

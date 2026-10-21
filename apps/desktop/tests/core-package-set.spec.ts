@@ -100,4 +100,24 @@ describe('desktop core package set', () => {
       )
     }).toThrow(/outside the local package set/u)
   })
+
+  it('rejects registry resolutions in pnpm 8 lockfile keys', () => {
+    // pnpm 8 (the Windows 7 track's package manager) writes lockfile v6 keys
+    // with a leading slash and a patch-hash suffix.
+    const dsh = record('@deepseek-ai/dsh', 'dsh.tgz', Buffer.from('dsh'))
+    const host = record('@deepseek-ai/dsh-desktop-host', 'host.tgz', Buffer.from('host'))
+    const packageSet = parseDesktopCorePackageSet({ schemaVersion: 1, packages: [dsh, host] })
+    expect(() => {
+      verifyDesktopCoreLockfile(
+        "packages:\n  /@deepseek-ai/dsh@file:desktop-packages/dsh.tgz:\n    resolution: {}\n",
+        packageSet,
+      )
+    }).not.toThrow()
+    expect(() => {
+      verifyDesktopCoreLockfile(
+        'packages:\n  /@deepseek-ai/dsh@1.2.3(patch_hash=lot2axnwgmqfbljujx77kwg5e4):\n    resolution: {integrity: sha512-registry}\n',
+        packageSet,
+      )
+    }).toThrow(/outside the local package set/u)
+  })
 })

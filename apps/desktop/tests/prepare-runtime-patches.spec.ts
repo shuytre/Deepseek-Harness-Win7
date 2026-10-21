@@ -34,6 +34,11 @@ function fixture(): { root: string; source: string; project: string } {
   writeFileSync(join(project, 'pnpm-workspace.yaml'), yaml.dump({
     packages: ['.'], nodeLinker: 'hoisted', overrides: { internal: 'file:./internal.tgz' }, allowBuilds: { fixture: false },
   }))
+  // The real flow writes the project manifest before staging patches; pnpm 8
+  // reads overrides and patched dependencies from it, not the workspace file.
+  writeFileSync(join(project, 'package.json'), JSON.stringify({
+    name: 'probe', private: true, version: '0.0.0', dependencies: { internal: 'file:./internal.tgz' },
+  }, undefined, 2))
   return { root, source, project }
 }
 
@@ -59,6 +64,27 @@ it('does not infer version overrides from selected patches', () => {
   })
   expect(readFileSync(join(source, 'pnpm-workspace.yaml'))).toEqual(before)
   expect(readFileSync(join(project, 'patches/desktop-0.patch'), 'utf8')).toBe(patch)
+})
+
+it('mirrors overrides and patches into the project manifest for pnpm 8', () => {
+  // pnpm 8 - staged by the Windows 7 track - reads pnpm.overrides and
+  // pnpm.patchedDependencies from the manifest only, so both must be written
+  // there as well as into the workspace file pnpm 11 reads.
+  const { source, project } = fixture()
+  const plan = prepareRuntimePatches(project, source, { 'fixture@1.0.0': shared }, { other: '3.0.0' })
+  const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8')) as {
+    dependencies: Record<string, string>
+    pnpm: { overrides: Record<string, string>, patchedDependencies: Record<string, string> }
+  }
+  expect(manifest.dependencies).toEqual({ internal: 'file:./internal.tgz' })
+  expect(manifest.pnpm.overrides).toMatchObject({ internal: 'file:./internal.tgz', other: '3.0.0' })
+  expect(manifest.pnpm.patchedDependencies).toEqual({ 'fixture@1.0.0': plan.patches[0]!.path })
+  const settings = yaml.load(readFileSync(join(project, 'pnpm-workspace.yaml'), 'utf8')) as {
+    overrides: Record<string, string>
+    patchedDependencies: Record<string, string>
+  }
+  expect(settings.overrides).toMatchObject({ internal: 'file:./internal.tgz', other: '3.0.0' })
+  expect(settings.patchedDependencies).toEqual({ 'fixture@1.0.0': plan.patches[0]!.path })
 })
 
 it('supports an independent runtime patch for a package also patched in the workspace', () => {
@@ -103,6 +129,31 @@ it.each(['version', 'lock hash', 'file bytes', 'workspace-only', 'unused'] as co
   }))
   if (failure === 'file bytes') writeFileSync(join(project, plan.patches[0]!.path), 'changed')
   expect(() => { verifyRuntimePatches(project, plan) }).toThrow(/desktop patches:/u)
+})
+
+it('verifies a pnpm 8 lockfile with version-6 keys and nested patch records', () => {
+  // pnpm 8 writes keys with a leading slash, a patch-hash suffix, and nested
+  // { hash, path } patch records whose hash is pnpm's own digest.
+  const { source, project } = fixture()
+  const plan = prepareRuntimePatches(project, source, { 'fixture@1.0.0': shared }, {})
+  const digest = 'lot2axnwgmqfbljujx77kwg5e4'
+  writeFileSync(join(project, 'pnpm-lock.yaml'), yaml.dump({
+    lockfileVersion: '6.0',
+    patchedDependencies: { 'fixture@1.0.0': { hash: digest, path: plan.patches[0]!.path } },
+    packages: { [`/fixture@1.0.0(patch_hash=${digest})`]: {} },
+  }))
+  expect(() => { verifyRuntimePatches(project, plan) }).not.toThrow()
+})
+
+it('rejects a pnpm 8 patch record pointing at another file', () => {
+  const { source, project } = fixture()
+  const plan = prepareRuntimePatches(project, source, { 'fixture@1.0.0': shared }, {})
+  writeFileSync(join(project, 'pnpm-lock.yaml'), yaml.dump({
+    lockfileVersion: '6.0',
+    patchedDependencies: { 'fixture@1.0.0': { hash: 'lot2axnwgmqfbljujx77kwg5e4', path: 'patches/elsewhere.patch' } },
+    packages: { '/fixture@1.0.0': {} },
+  }))
+  expect(() => { verifyRuntimePatches(project, plan) }).toThrow(/lockfile patch record mismatch/u)
 })
 
 it.each([false, true])('pnpm applies runtime-only bytes and rejects an inapplicable patch (invalid=%s)', async (invalid) => {
