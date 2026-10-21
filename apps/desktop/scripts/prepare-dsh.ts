@@ -77,7 +77,10 @@ function runPnpm(args: readonly string[]): Promise<void> {
     const config = join(PNPM_BUILD_STATE, 'config')
     const userConfig = join(config, 'npmrc')
     mkdirSync(config, { recursive: true })
-    writeFileSync(userConfig, '')
+    // pnpm 8 does not read nodeLinker or autoInstallPeers from
+    // pnpm-workspace.yaml; the .npmrc form reaches every pnpm generation and
+    // keeps the staged tree hoisted like the Win10 track's.
+    writeFileSync(userConfig, 'node-linker=hoisted\nauto-install-peers=false\n')
     const child = spawn(NODE, [
       '--expose-internals',
       PNPM,
