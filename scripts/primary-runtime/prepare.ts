@@ -358,7 +358,7 @@ export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOption
     for (const wheel of [...lock.targets[target].wheels, ...targetSharedWheels(target)]) {
       await unpackPrimaryRuntimeWheel(await downloadPrimaryRuntimeAsset(wheel.url, wheel.sha256, paths.downloads), entries.pythonPackages)
     }
-    prunePrimaryRuntimePythonTests(entries.pythonPackages)
+    prunePrimaryRuntimePythonTests(entries.pythonPackages, targetPythonPackages(target))
     writeFileSync(join(output, 'runtime.json'), `${JSON.stringify(manifest, undefined, 2)}\n`)
     const destination = join(paths.runtime, 'primary-runtime')
     rmSync(destination, { recursive: true, force: true })

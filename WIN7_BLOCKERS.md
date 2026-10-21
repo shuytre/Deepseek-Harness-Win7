@@ -256,13 +256,30 @@ build/package 前 4 类错误全部通过后，卡在客户端 CSS 管线（`pac
 
 补充实测：`@property`（`DesktopOnboarding.module.css` 的 `initial-value: 90deg`）不含颜色函数，无需处理；`window-material.css` 的 `@media (prefers-color-scheme: dark)` 块操作数是字面 `rgb()`，用哪张 token 表结果一致。
 
+### 运行 6（tag `win7-6`）— build 通过，package 卡在 Python 运行时暂存
+
+`win7-run.json` 记录：**build code 0（384 秒）**——CSS 修复生效；package code 1（629 秒），失败点在
+`prepare:runtime` → `prunePrimaryRuntimePythonTests`：
+
+```
+Error: ENOENT: no such file or directory, open
+  'C:\Users\RUNNER~1\AppData\Local\Temp\dsh-primary-rNO0iL\payload\dependencies\python\Lib\site-packages\numpy-2.3.5.dist-info\RECORD'
+    at prunePrimaryRuntimePythonTests (scripts/primary-runtime/prune-python-tests.ts:30)
+```
+
+| 错误 | 根因 | 修复 |
+|---|---|---|
+| ENOENT `numpy-2.3.5.dist-info/RECORD` | 函数直接读**顶层** `lock.pythonPackages`（Win10 轨的 numpy 2.3.5 / pandas 3.0.1），而 Win7 轨暂存的是 numpy 1.24.4 / pandas 2.0.3（`lock.targets['win7-x64'].pythonPackages`，wheel 列表已确认含这两个包） | 函数改为接收调用方的版本表：`prunePrimaryRuntimePythonTests(sitePackages, versions)`；`prepare.ts` 传 `targetPythonPackages(target)`；spec 三处调用显式传 `lock.pythonPackages`，并新增"按调用方锁定的版本裁剪"用例（用 win7 的 1.24.4） |
+
+本机验证（无符号链接）：tsc 转译真实函数 + papaparse stub，跑 3 组场景共 8 条断言全过——win7 版本表正常裁剪且不再 ENOENT、默认版本表行为不变、版本表与实际暂存不符时明确抛错。类型检查用 store 里的 tsc 6.0.3 对三个改动文件单独跑，除缺模块的环境噪音外无真实错误。
+
 ### 成功后的直链（仓库当前为 public，满足直链前提）
 
 ```
-https://github.com/shuytre/Deepseek-Harness-Win7/releases/download/win7-6/deepseek-harness-0.2.1-alpha.2-win-x64-unsigned-win7-setup.exe
+https://github.com/shuytre/Deepseek-Harness-Win7/releases/download/win7-7/deepseek-harness-0.2.1-alpha.2-win-x64-unsigned-win7-setup.exe
 ```
 
-（以 `gh release create` 实际发布的资产名为准；tag 用 `win7-6`，也可在 Actions 手动触发时自填。）
+（以 `gh release create` 实际发布的资产名为准；tag 用 `win7-7`，也可在 Actions 手动触发时自填。）
 
 ## 8. 在合格构建机上的一次性执行序列
 

@@ -42,7 +42,7 @@ it('removes only NumPy/pandas test directories and keeps retained wheel files an
     await unpackPrimaryRuntimeWheel(archive, sitePackages)
     await mkdir(join(sitePackages, 'numpy/empty/tests'), { recursive: true })
 
-    prunePrimaryRuntimePythonTests(sitePackages)
+    prunePrimaryRuntimePythonTests(sitePackages, lock.pythonPackages)
 
     for (const path of [...removed, 'numpy/tests', 'numpy/empty/tests', 'pandas/tests']) {
       await expect(readFile(join(sitePackages, path))).rejects.toMatchObject({ code: 'ENOENT' })
@@ -60,7 +60,7 @@ it('removes only NumPy/pandas test directories and keeps retained wheel files an
     }
     expect(await readFile(archive)).toEqual(wheel)
     const before = await Promise.all(Object.values(records).map(record => readFile(join(sitePackages, record))))
-    prunePrimaryRuntimePythonTests(sitePackages)
+    prunePrimaryRuntimePythonTests(sitePackages, lock.pythonPackages)
     expect(await Promise.all(Object.values(records).map(record => readFile(join(sitePackages, record))))).toEqual(before)
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -76,10 +76,38 @@ it.each(['"unterminated,,\n', 'numpy/tests/test_numpy.py,\n', '', ',,\n'])(
       await mkdir(join(root, 'numpy/tests'), { recursive: true })
       const testFile = join(root, 'numpy/tests/test_numpy.py')
       await writeFile(testFile, 'test fixture\n')
-      expect(() => { prunePrimaryRuntimePythonTests(root) }).toThrow('invalid wheel RECORD')
+      expect(() => { prunePrimaryRuntimePythonTests(root, lock.pythonPackages) }).toThrow('invalid wheel RECORD')
       expect(await readFile(testFile, 'utf8')).toBe('test fixture\n')
     } finally {
       await rm(root, { recursive: true, force: true })
     }
   },
 )
+
+it('prunes the versions the caller locked, not the default track\'s', async () => {
+  // The Windows 7 track stages numpy 1.24.4 / pandas 2.0.3; reading the default
+  // lock's versions here would look for dist-info directories that do not exist.
+  const win7 = lock.targets['win7-x64'].pythonPackages
+  expect(win7.numpy).not.toBe(lock.pythonPackages.numpy)
+  const root = await mkdtemp(join(tmpdir(), 'primary-python-pruning-win7-'))
+  try {
+    const files: Record<string, Buffer> = {
+      'numpy/__init__.py': Buffer.from('contents of numpy/__init__.py\n'),
+      'numpy/tests/test_numpy.py': Buffer.from('contents of numpy/tests/test_numpy.py\n'),
+      [`numpy-${win7.numpy}.dist-info/RECORD`]: Buffer.from('numpy/__init__.py,,\nnumpy/tests/test_numpy.py,,\n'),
+    }
+    const archive = join(root, 'libraries.whl')
+    const sitePackages = join(root, 'site-packages')
+    await writeFile(archive, Buffer.from(zipSync(files)))
+    await unpackPrimaryRuntimeWheel(archive, sitePackages)
+
+    prunePrimaryRuntimePythonTests(sitePackages, win7)
+
+    expect(await readFile(join(sitePackages, 'numpy/__init__.py'), 'utf8')).toBe('contents of numpy/__init__.py\n')
+    await expect(readFile(join(sitePackages, 'numpy/tests/test_numpy.py'))).rejects.toMatchObject({ code: 'ENOENT' })
+    const lines = (await readFile(join(sitePackages, `numpy-${win7.numpy}.dist-info/RECORD`), 'utf8')).trimEnd().split('\n')
+    expect(lines).toEqual(['numpy/__init__.py,,'])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
