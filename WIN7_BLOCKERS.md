@@ -273,13 +273,42 @@ Error: ENOENT: no such file or directory, open
 
 本机验证（无符号链接）：tsc 转译真实函数 + papaparse stub，跑 3 组场景共 8 条断言全过——win7 版本表正常裁剪且不再 ENOENT、默认版本表行为不变、版本表与实际暂存不符时明确抛错。类型检查用 store 里的 tsc 6.0.3 对三个改动文件单独跑，除缺模块的环境噪音外无真实错误。
 
+### 运行 7（tag `win7-7`）— build 通过，package 卡在 Python 冒烟，本机端到端复现并连修三个问题
+
+`win7-run.json` 记录：**build code 0（392 秒）**；package code 1（517 秒），失败在
+`prepare:runtime` → `smokePrimaryRuntime`：
+
+```
+File "scripts/primary-runtime/smoke.py", line 15, in <module>
+    import numpy._core._multiarray_tests
+ModuleNotFoundError: No module named 'numpy._core'
+```
+
+`numpy._core` 是 numpy 2.x 的路径；win7 轨锁的是 numpy 1.24.4（实测下载 wheel 核对：模块在
+`numpy/core/_multiarray_tests.cp38-win_amd64.pyd`，整个 wheel 无 `numpy/_core/` 目录）。
+
+本机把整个 payload 拼出来跑通（内嵌 Python 3.8.10 + 14 个 wheel + 真实 prune 函数 + 冒烟三步），
+连修/连验证了三个问题：
+
+| # | 问题 | 证据 | 修复 |
+|---|---|---|---|
+| 1 | smoke.py 硬编码 numpy 2.x 模块路径 | 本地 payload 上 ModuleNotFoundError，与 CI 逐字一致 | `try: numpy._core... except ModuleNotFoundError: numpy.core...`（两侧都实测可导入） |
+| 2 | `check_office.py` 用 `str.removeprefix()`（3.9+），3.8 报 `AttributeError` | 本地 3.8.10 跑冒烟复现；该文件有 `from __future__ import annotations`，注解安全，运行时仅此两处 | 改为 `key[len(w):] if key.startswith(w) else key`；用 3.8.10 跑该文件自带的 12 个单测全过 |
+| 3 | 内嵌 Python 3.8.10 **不含 pip**（实测：python.org 下载、sha256 与 lock 一致、32 个条目无 pip），而冒烟要求 pip 在分发列表且要跑 `pip check` | 本地无 pip 时分发名断言即失败 | lock 的 `win7-x64.wheels` 增加 `pip-24.0-py3-none-any.whl`（PyPI 实测 `requires_python: >=3.7`，URL+sha256 实测下载校验通过）；pip 属解释器基线，不进 `pythonPackages` |
+
+连带修复：`prepare.spec.ts` 的"每个目标的 wheel 与声明一一对应"测试读的是**顶层** lock（win7 轨改造后本来就红——numpy 1.24.4 vs 2.3.5 等 4 项不符），改为目标级 `sharedWheels`/`pythonPackages` 并把 pip 按基线豁免；node 模拟六个目标全过。
+
+本地端到端结果（真实 3.8.10 解释器）：快速导入检查、完整 smoke（版本断言、分发名集合含 pip、numpy/pandas 计算与 testing 助手、RECORD 完整性、Office 文档往返、check_office.py 子检查）、`pip check`（No broken requirements found）全部通过。
+
+仍未验证：prepare:runtime 之后的打包步骤（electron-builder NSIS + window-frame.dll 编译）在 win7 轨首次执行，run 8 见分晓。
+
 ### 成功后的直链（仓库当前为 public，满足直链前提）
 
 ```
-https://github.com/shuytre/Deepseek-Harness-Win7/releases/download/win7-7/deepseek-harness-0.2.1-alpha.2-win-x64-unsigned-win7-setup.exe
+https://github.com/shuytre/Deepseek-Harness-Win7/releases/download/win7-8/deepseek-harness-0.2.1-alpha.2-win-x64-unsigned-win7-setup.exe
 ```
 
-（以 `gh release create` 实际发布的资产名为准；tag 用 `win7-7`，也可在 Actions 手动触发时自填。）
+（以 `gh release create` 实际发布的资产名为准；tag 用 `win7-8`，也可在 Actions 手动触发时自填。）
 
 ## 8. 在合格构建机上的一次性执行序列
 

@@ -19,14 +19,24 @@ const externalLibraryWheel = Buffer.from('UEsDBBQAAAAAAAAAIVyBOE8OHAAAABwAAAAhAA
 
 it.each(Object.entries(lock.targets))('records every locked wheel distribution and version for %s', (_target, artifact) => {
   const normalize = (name: string): string => name.toLowerCase().replace(/[-_.]+/gu, '-')
-  const distributions = [...artifact.wheels, ...lock.wheels].map(({ url }) => {
+  // A target may lock its own shared wheels and package versions (the Windows 7
+  // track stages older releases); fall back to the default lock otherwise.
+  const sharedWheels = 'sharedWheels' in artifact ? artifact.sharedWheels : lock.wheels
+  const packages = 'pythonPackages' in artifact ? artifact.pythonPackages : lock.pythonPackages
+  const locked = [...artifact.wheels, ...sharedWheels].map(({ url }) => {
     const [name, version] = basename(new URL(url).pathname).split('-')
     return [normalize(name!), version] as const
   })
-  const declared = Object.entries(lock.pythonPackages).map(([name, version]) => [normalize(name), version] as const)
+  // pip belongs to the interpreter baseline rather than the distribution list:
+  // the embeddable carrier the Windows 7 track uses ships none, so its lock
+  // stages the wheel while the manifest deliberately leaves it undeclared.
+  const baseline = locked.filter(([name]) => name === 'pip')
+  const distributions = locked.filter(([name]) => name !== 'pip')
+  const declared = Object.entries(packages).map(([name, version]) => [normalize(name), version] as const)
   expect(new Set(distributions.map(([name]) => name)).size).toBe(distributions.length)
   expect(new Set(declared.map(([name]) => name)).size).toBe(declared.length)
   expect(Object.fromEntries(distributions)).toEqual(Object.fromEntries(declared))
+  for (const [, version] of baseline) expect(version).toMatch(/^\d+(?:\.\d+)*$/u)
 })
 
 it('keeps a target payload identity independent of other target archives', () => {

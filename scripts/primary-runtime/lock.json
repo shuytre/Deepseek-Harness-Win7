@@ -59,6 +59,10 @@
         {
           "url": "https://files.pythonhosted.org/packages/be/4b/6ca2d2e16a1b78a8a3ec18f5e586044c3903c3967411e7a9e37cb4727c6d/lxml-5.2.2-cp38-cp38-win_amd64.whl",
           "sha256": "f61efaf4bed1cc0860e567d2ecb2363974d414f7f1f124b1df368bbf183453a6"
+        },
+        {
+          "url": "https://files.pythonhosted.org/packages/8a/6a/19e9fe04fca059ccf770861c7d5721ab4c2aebc539889e97c7977528a53b/pip-24.0-py3-none-any.whl",
+          "sha256": "ba0d021a166865d2265246961bec0152ff124de910c5cc39f1156ce3fa7c69dc"
         }
       ],
       "sharedWheels": [

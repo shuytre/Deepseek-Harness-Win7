@@ -12,7 +12,12 @@ import tempfile
 
 import numpy
 # NumPy testing helpers require this native extension even without upstream test directories.
-import numpy._core._multiarray_tests
+# NumPy 2 keeps it under numpy._core, while the Windows 7 track stages 1.24.4, where it
+# still lives in numpy.core - try the modern path first and fall back for the old one.
+try:
+    import numpy._core._multiarray_tests
+except ModuleNotFoundError:
+    import numpy.core._multiarray_tests
 import pandas
 from docx import Document
 from docx.shared import Inches as DocxInches
