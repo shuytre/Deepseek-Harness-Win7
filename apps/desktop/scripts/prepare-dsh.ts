@@ -77,10 +77,11 @@ function runPnpm(args: readonly string[]): Promise<void> {
     const config = join(PNPM_BUILD_STATE, 'config')
     const userConfig = join(config, 'npmrc')
     mkdirSync(config, { recursive: true })
-    // pnpm 8 does not read nodeLinker or autoInstallPeers from
-    // pnpm-workspace.yaml; the .npmrc form reaches every pnpm generation and
-    // keeps the staged tree hoisted like the Win10 track's.
-    writeFileSync(userConfig, 'node-linker=hoisted\nauto-install-peers=false\n')
+    // pnpm 8 does not read nodeLinker, autoInstallPeers or the engines-check
+    // Node identity from pnpm-workspace.yaml; the .npmrc form reaches every
+    // pnpm generation. node-version lets the staged Node 16 resolve packages
+    // that declare the Node 22 floor the Win10 track's dependencies require.
+    writeFileSync(userConfig, 'node-linker=hoisted\nauto-install-peers=false\nnode-version=22.19.0\n')
     const child = spawn(NODE, [
       '--expose-internals',
       PNPM,
