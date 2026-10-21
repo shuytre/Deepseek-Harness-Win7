@@ -322,13 +322,40 @@ ModuleNotFoundError: No module named 'numpy._core'
 
 仍未验证：`runtime:install` 之后的 materialize / manifests / `smokePreparedRuntime`（会用暂存的 Node 16 跑 dsh CLI，pi-ai 1.0.2 的 `engines: node>=22.19` 在 Node 16 上的运行时行为首次接受检验）与 electron-builder 打包。
 
+### 运行 9（tag `win7-9`）— pnpm 8 安装通过，核心包锁定同样需镜像
+
+`win7-run.json` 记录：**build code 0（360 秒）**；package code 1（672 秒）。上一轮的三处 pnpm 8 修复生效——
+安装完成（914 个包）、`verifyRuntimePatches` 通过。新失败点在紧随其后的 `verifyDesktopCoreLockfile`：
+
+```
+Error: desktop package set: lockfile resolved @deepseek-ai/cordis@4.0.5-alpha.1 outside the local package set
+```
+
+根因同一族：`createRuntimeProjectMetadata` 把**全部核心包的本地 tarball 锁定**写在 pnpm-workspace.yaml 的
+`overrides` 里（`desktopCorePackageOverrides`），pnpm 8 同样忽略该文件 → 第一方包走了 registry。
+修复：`prepareRuntimePatches` 现在把 workspace 文件里**已有的** overrides 与补丁相关的 overrides 合并后
+一并写入项目 package.json（pnpm 11 实测两处并存无冲突）。
+
+顺带实测（本机 pnpm 8.15.9 + Node 16）：
+- pnpm 8 **会**执行 yaml 里的 `allowUnusedPatches: false`（补丁没打上直接报错），但**不读** yaml 的
+  `patchedDependencies`/`overrides`——两者读取位置不同，不能互相推断。
+- pnpm 8 默认**跳过依赖的构建脚本**（esbuild 实测未产出二进制）；`onlyBuiltDependencies` 在 8.15.9 尚不存在
+  （package.json 与 `--config` 两种写法均实测无效）。node-pty 1.2.0-beta.15 的 tarball **自带 prebuilds**
+  （实测 `prebuilds/` 目录在），koffi 同样自带预编译产物；`allowBuilds` 里的 fs-ext 实测不在任何 workspace
+  包的依赖表中。因此跳过构建对 Windows 目标无实际损失；若后续 smoke 暴露出缺失原生模块，再按包
+  `pnpm rebuild` 兜底。
+
+本机验证：真实函数探针扩充到 12 条断言（新增"核心包 overrides 镜像进 package.json"），全过。
+
+仍未验证：`verifyDesktopCoreLockfile` 之后的 materialize / manifests / `smokePreparedRuntime` 与 electron-builder 打包。
+
 ### 成功后的直链（仓库当前为 public，满足直链前提）
 
 ```
-https://github.com/shuytre/Deepseek-Harness-Win7/releases/download/win7-9/deepseek-harness-0.2.1-alpha.2-win-x64-unsigned-win7-setup.exe
+https://github.com/shuytre/Deepseek-Harness-Win7/releases/download/win7-10/deepseek-harness-0.2.1-alpha.2-win-x64-unsigned-win7-setup.exe
 ```
 
-（以 `gh release create` 实际发布的资产名为准；tag 用 `win7-9`，也可在 Actions 手动触发时自填。）
+（以 `gh release create` 实际发布的资产名为准；tag 用 `win7-10`，也可在 Actions 手动触发时自填。）
 
 ## 8. 在合格构建机上的一次性执行序列
 

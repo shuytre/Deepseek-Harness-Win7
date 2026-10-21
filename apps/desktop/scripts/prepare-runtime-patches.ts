@@ -85,13 +85,16 @@ export function prepareRuntimePatches(
   }
   // pnpm 10.16+ reads overrides and patched dependencies from pnpm-workspace.yaml;
   // pnpm 8 - which the Windows 7 track stages - reads them from the project
-  // manifest's `pnpm` field only. Writing both keeps every track identical.
+  // manifest's `pnpm` field only. The workspace file already carries the core
+  // package set's local-tarball overrides, so the manifest must mirror those too,
+  // or first-party packages resolve from the registry.
   const manifestPath = join(projectRoot, 'package.json')
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown> & { pnpm?: Record<string, unknown> }
   const manifestPnpm = manifest.pnpm ?? {}
   const manifestOverrides = (manifestPnpm.overrides ?? {}) as Record<string, string>
   const manifestPatched = (manifestPnpm.patchedDependencies ?? {}) as Record<string, string>
-  for (const [name, version] of Object.entries(overrides)) {
+  const mergedOverrides = { ...target.overrides, ...overrides }
+  for (const [name, version] of Object.entries(mergedOverrides)) {
     if (manifestOverrides[name] !== undefined && manifestOverrides[name] !== version) {
       throw new Error(`desktop patches: conflicting dependency override for ${name}`)
     }
@@ -104,11 +107,11 @@ export function prepareRuntimePatches(
   }
   mkdirSync(join(projectRoot, 'patches'), { recursive: true })
   for (const entry of selected) writeFileSync(join(projectRoot, entry.path), entry.bytes)
-  writeFileSync(targetPath, yaml.dump({ ...target, overrides: { ...target.overrides, ...overrides },
+  writeFileSync(targetPath, yaml.dump({ ...target, overrides: mergedOverrides,
     patchedDependencies: { ...(target.patchedDependencies as Record<string, string> | undefined), ...selectedPatches },
     allowUnusedPatches: false }))
   writeFileSync(manifestPath, `${JSON.stringify({ ...manifest,
-    pnpm: { ...manifestPnpm, overrides: { ...manifestOverrides, ...overrides }, patchedDependencies: { ...manifestPatched, ...selectedPatches } },
+    pnpm: { ...manifestPnpm, overrides: { ...manifestOverrides, ...mergedOverrides }, patchedDependencies: { ...manifestPatched, ...selectedPatches } },
   }, undefined, 2)}\n`)
   return { patches: selected.map(({ bytes: _bytes, ...entry }) => entry),
     workspaceOnly: Object.entries(policy).filter(([, rule]) => rule.scope === 'workspace-only').map(([spec]) => patchIdentity(spec).name) }

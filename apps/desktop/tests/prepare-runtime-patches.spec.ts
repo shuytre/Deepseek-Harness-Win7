@@ -87,6 +87,22 @@ it('mirrors overrides and patches into the project manifest for pnpm 8', () => {
   expect(settings.patchedDependencies).toEqual({ 'fixture@1.0.0': plan.patches[0]!.path })
 })
 
+it('mirrors the workspace core package overrides into the manifest', () => {
+  // createRuntimeProjectMetadata pins every core package to a local tarball
+  // through the workspace file; pnpm 8 ignores that file's overrides, so the
+  // manifest must carry them or first-party packages resolve from a registry.
+  const { source, project } = fixture()
+  const core = { '@deepseek-ai/dsh': 'file:./desktop-packages/dsh.tgz' }
+  writeFileSync(join(project, 'pnpm-workspace.yaml'), yaml.dump({
+    packages: ['.'], overrides: { internal: 'file:./internal.tgz', ...core },
+  }))
+  prepareRuntimePatches(project, source, { 'fixture@1.0.0': shared }, {})
+  const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8')) as {
+    pnpm: { overrides: Record<string, string> }
+  }
+  expect(manifest.pnpm.overrides).toMatchObject({ internal: 'file:./internal.tgz', ...core })
+})
+
 it('supports an independent runtime patch for a package also patched in the workspace', () => {
   const { source, project } = fixture()
   const plan = prepareRuntimePatches(project, source, {
