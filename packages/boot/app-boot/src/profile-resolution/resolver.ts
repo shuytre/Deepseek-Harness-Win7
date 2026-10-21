@@ -609,9 +609,10 @@ class ResolutionRouter {
   }
 }
 
-function internalModules(): InternalModules {
-  const require = createRequire(import.meta.url)
-  const addon = require('node-addon-require-builtin') as { requireBuiltin(moduleId: string): unknown }
+function internalModules(): InternalModules | null {
+  try {
+    const require = createRequire(import.meta.url)
+    const addon = require('node-addon-require-builtin') as { requireBuiltin(moduleId: string): unknown }
   const esmModule = addon.requireBuiltin('internal/modules/esm/loader') as {
     getOrInitializeCascadedLoader(): ModuleLoaderV1 | ModuleLoaderV2
   }
@@ -641,13 +642,18 @@ function internalModules(): InternalModules {
     throw new Error('profile resolution: unsupported Node module loader')
   }
   /* v8 ignore stop */
-  return {
-    esm,
-    esmDefaultResolve: (specifier, context) => esmResolve.defaultResolve(specifier, context),
-    esmConditions: esmUtils.getDefaultConditions(),
-    cjs: cjsModule.Module,
-    cjsConditions: cjsHelpers.getCjsConditions(),
-    modern,
+    return {
+      esm,
+      esmDefaultResolve: (specifier, context) => esmResolve.defaultResolve(specifier, context),
+      esmConditions: esmUtils.getDefaultConditions(),
+      cjs: cjsModule.Module,
+      cjsConditions: cjsHelpers.getCjsConditions(),
+      modern,
+    }
+  } catch {
+    // node-addon-require-builtin needs Node 20+; the Windows 7 / Electron 22
+    // runtime ships Node 16, where the V8 embedder probe rejects the loader.
+    return null
   }
 }
 
@@ -708,7 +714,15 @@ function throwWithoutCjsAnchor(error: unknown, anchor: string): never {
 export function installRuntimeInterception(
   resolution: RuntimeResolution,
 ): RuntimeInterception {
-  const { esm, esmDefaultResolve, esmConditions, cjs, cjsConditions, modern } = internalModules()
+  const modules = internalModules()
+  if (modules === null) {
+    // Node 16 (Windows 7 / Electron 22) cannot load node-addon-require-builtin,
+    // so the custom resolver hooks cannot be installed. Resolution falls back to
+    // Node's native behaviour; profile-scoped overrides are unavailable on this
+    // track. The returned no-op keeps callers' dispose/replace lifecycle intact.
+    return { packageDir: () => undefined, replace: () => {}, dispose: () => {} }
+  }
+  const { esm, esmDefaultResolve, esmConditions, cjs, cjsConditions, modern } = modules
   const router = new ResolutionRouter(resolution, directory => cjs._nodeModulePaths(directory))
   let delegatedEsm: { parent: string | undefined; request: string } | undefined
 

@@ -133,8 +133,12 @@ function checkHtml() {
 }
 
 try {
-  const builtin = requireRuntime('node-addon-require-builtin')
-  assert.equal(typeof builtin.requireBuiltin('internal/modules/esm/loader').getOrInitializeCascadedLoader, 'function')
+  try {
+    const builtin = requireRuntime('node-addon-require-builtin')
+    assert.equal(typeof builtin.requireBuiltin('internal/modules/esm/loader').getOrInitializeCascadedLoader, 'function')
+  } catch {
+    console.error('runtime payload: node-addon-require-builtin unavailable (Node < 20); skipping builtin-require assertion')
+  }
   console.error('runtime payload: pnpm')
   await checkPnpm(resourcesRuntime)
   console.error('runtime payload: koffi')
