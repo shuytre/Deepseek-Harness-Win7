@@ -30,7 +30,7 @@ export function installOfficeEngineResolution(runtimeDir: string): ModuleHooks |
   // the packaged engine path cannot be redirected, so Office engine resolution
   // degrades instead of failing the whole CLI at import time.
   const registerHooks = (NodeModule as unknown as {
-    registerHooks?: (hooks: ModuleHooks) => ModuleHooks
+    registerHooks?: (typeof import('node:module'))['registerHooks']
   }).registerHooks
   if (typeof registerHooks !== 'function') return undefined
   return registerHooks({
