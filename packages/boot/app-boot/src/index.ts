@@ -15,6 +15,7 @@ import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
 import { Context, type FiberState } from '@deepseek-ai/cordis'
 import Loader, { type Entry, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
+import { traceWin7Stage } from './win7-trace.ts'
 import Include, { applyEntryPatches, entryListSchema, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import Group from '@deepseek-ai/cordis-plugin-group'
 import { dshHomePath, resolveDshHome } from '@deepseek-ai/dsh-home-paths'
@@ -28,6 +29,7 @@ export {
 } from './profile-compatibility.ts'
 import { prepareProfilePatches } from './compatibility-preflight.ts'
 export { prepareProfileEntries, prepareProfilePatches } from './compatibility-preflight.ts'
+export { traceWin7Stage } from './win7-trace.ts'
 export { readPluginMeta, resolvePluginResource } from './package-meta.ts'
 export { ON_DEMAND_BUNDLES, OFFICIAL_ON_DEMAND_CATALOG, type OfficialBundleCatalogEntry } from './official-bundles.ts'
 export { generateConfigSchema, type ConfigSchemaDump, type NativeConfigSchema } from './config-schema/index.ts'
@@ -615,6 +617,7 @@ export async function mountRootInclude(
   // The launcher's own copy is prepared here: compatibility decisions must be made before the root
   // Include imports anything, and they change no profile patch layer, manifest, or bundle list.
   const prepared = prepareProfilePatches(ctx, [...patches], pathToFileURL(dirname(absoluteConfigPath)).href + '/', binName)
+  traceWin7Stage(`include: patches prepared (${String(prepared.length)})`)
   const includeConfig: Include.Config = {
     path: pathToFileURL(absoluteConfigPath).href,
     ...prepared.length > 0 ? { patches: prepared } : {},
@@ -624,10 +627,13 @@ export async function mountRootInclude(
     name: 'cordis:include',
     config: includeConfig,
   }
+  traceWin7Stage('include: creating')
   const includeId = await ctx.loader.create(rootInclude)
+  traceWin7Stage(`include: created ${String(includeId)}`)
   const loader = ctx.get('loader')
   if (loader === undefined) return undefined
   const entry = loader.resolve(includeId)
+  traceWin7Stage('include: resolved')
   bootstrapIncludes.set(ctx, entry)
   return entry
 }
@@ -1048,9 +1054,12 @@ export async function boot(
       void Promise.resolve(next()).catch((error: unknown) => { ctx.logger.error(error) })
     }, { global: true, prepend: true })
     await ctx.plugin(Loader)
+    traceWin7Stage('boot: loader mounted')
     await prepare?.(ctx)
+    traceWin7Stage('boot: prepare returned')
     stage = 'plugin tree failed to load'
     await mountRootInclude(ctx, absoluteConfigPath, patches, bareModuleBaseUrl, binName)
+    traceWin7Stage('boot: root include mounted')
     // A surface can finish and dispose the whole tree while startup is still
     // in flight, before the last entry settles. The Loader service goes with
     // it, and the activation audit describes a live tree — reading `ctx.loader`

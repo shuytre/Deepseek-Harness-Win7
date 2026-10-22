@@ -15,7 +15,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { delimiter, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { scanDirectory } from './check/scan-pe-imports.mjs'
@@ -147,6 +147,30 @@ function publishArtifacts() {
   return published
 }
 
+/**
+ * Copy the compatibility runtime's boot trace beside the step logs.
+ *
+ * The trace names the exact stage and module where the packaged Host aborted;
+ * it lives inside the runtime tree, which the diagnostics commit does not
+ * otherwise collect.
+ */
+function collectBootTrace() {
+  const source = join(BUILD_PATHS_ROOT, 'runtime', 'win7-compat', 'win7-trace.log')
+  if (!existsSync(source)) {
+    stepResults.push({ name: 'trace', code: 1, detail: 'the compatibility runtime wrote no boot trace' })
+    return
+  }
+  const destination = join(RUN_DIRECTORY, 'win7-trace.log')
+  mkdirSync(RUN_DIRECTORY, { recursive: true })
+  cpSync(source, destination)
+  const lines = readFileSync(destination, 'utf8').split('\n').filter(Boolean)
+  stepResults.push({
+    name: 'trace',
+    code: 0,
+    detail: `${String(lines.length)} lines; last: ${lines.slice(-6).join(' | ')}`,
+  })
+}
+
 async function main() {
   const profile = win7Profile(PACKAGING_ENVIRONMENT)
   process.stdout.write(`[win7] profile: Electron ${profile.electronVersion}, Node ${profile.nodeVersion}, Python ${profile.pythonVersion}\n`)
@@ -163,6 +187,7 @@ async function main() {
   await runStep('build', packageManagerCommand(['run', 'build']))
   await runStep('package', packageManagerCommand(['--dir', 'apps/desktop', 'run', signed ? 'package:win:x64' : 'package:win:x64:unsigned']))
   if (!skipScan) await scanPackagedPayload()
+  collectBootTrace()
   const published = publishArtifacts()
   writeFileSync(join(RUN_DIRECTORY, 'win7-run.json'), `${JSON.stringify({
     schemaVersion: 1,

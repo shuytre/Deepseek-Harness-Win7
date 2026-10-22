@@ -318,19 +318,71 @@ function installWebSocket() {
 function installRequireTrace() {
   if (process.env.DSH_WIN7_TRACE_REQUIRE !== '1') return
   const Module = require('node:module')
-  const { writeSync } = require('node:fs')
   const original = Module._load
   Module._load = function tracedLoad(request) {
     if (typeof request === 'string' && !request.startsWith('.') && !request.startsWith('node:')) {
-      try { writeSync(2, `win7-require: ${request}\n`) } catch { /* ignore */ }
+      traceStage(`require: ${request}`)
     }
     return original.apply(this, arguments)
   }
 }
 
+/** Cached file descriptor for {@link traceStage}. */
+let traceSink
+
+/**
+ * Write one trace line synchronously to the single trace sink.
+ *
+ * The desktop Host's stderr is a Windows pipe, and a shell that captures it
+ * keeps only the tail and orders it separately from stdout; a native abort also
+ * drops queued writes. One append-only file, written synchronously, keeps the
+ * exact order across this preload and the product modules.
+ * @param {string} stage - Stage or module name.
+ */
+function traceStage(stage) {
+  try {
+    if (traceSink === undefined) {
+      const path = process.env.DSH_WIN7_TRACE_FILE
+      traceSink = path === undefined || path === '' ? 2 : require('node:fs').openSync(path, 'a')
+    }
+    require('node:fs').writeSync(traceSink, `${new Date().toISOString()} ${stage}\n`)
+  } catch {
+    // A closed sink during teardown must not turn a trace into a failure.
+  }
+}
+
+/**
+ * Trace every native addon the runtime loads.
+ *
+ * `require('./build/Release/x.node')` resolves through `process.dlopen`, which no
+ * module hook sees; a native addon can abort the process while its own
+ * initializer runs, before any JavaScript returns, so the addon path is the last
+ * line that stays truthful.
+ */
+function installDlopenTrace() {
+  if (process.env.DSH_WIN7_TRACE_REQUIRE !== '1') return
+  const original = process.dlopen
+  if (typeof original !== 'function') return
+  process.dlopen = function tracedDlopen(module, filename) {
+    traceStage(`dlopen: ${filename}`)
+    return original.apply(this, arguments)
+  }
+}
+
+/** Record a graceful end of the process, so an abort is distinguishable from an exit. */
+function installExitTrace() {
+  if (process.env.DSH_WIN7_TRACE_REQUIRE !== '1') return
+  process.on('exit', (code) => { traceStage(`process exit: ${code}`) })
+  process.on('uncaughtException', (error) => { traceStage(`uncaught exception: ${error && error.stack ? error.stack.split('\n')[0] : error}`) })
+  process.on('unhandledRejection', (reason) => { traceStage(`unhandled rejection: ${reason}`) })
+}
+
 /** Install every guard that applies to the running runtime. */
 function installWin7Polyfills() {
+  globalThis.__DSH_WIN7_TRACE__ = traceStage
+  installExitTrace()
   installRequireTrace()
+  installDlopenTrace()
   installPromiseWithResolvers()
   installAbortSignalHelpers()
   installStructuredClone()

@@ -10,7 +10,7 @@
  * @module @deepseek-ai/dsh/profile-boot
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync, writeSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { FiberState, type Context } from '@deepseek-ai/cordis'
@@ -28,6 +28,7 @@ import {
   PROFILE_PATCH_FILENAME,
   PROFILE_TEMPLATES,
   resolveProfileDir,
+  traceWin7Stage,
   type ProfileContext,
   type Profile,
   type RuntimeResolution,
@@ -245,16 +246,14 @@ export interface RunProfileOptions {
  * Write a boot-stage trace synchronously.
  *
  * The desktop Host runs with stderr as a Windows pipe, where stream writes are
- * buffered; a native abort would drop the last buffered stage. `writeSync` reaches
- * the pipe before the process dies.
+ * buffered; a native abort would drop the last buffered stage. The Windows 7
+ * compatibility runtime additionally names a single trace file, which keeps the
+ * stage order intact instead of leaving stages in a second, separately tailed
+ * buffer.
  * @param stage - human-readable boot phase.
  */
 function traceBootStage(stage: string): void {
-  try {
-    writeSync(2, `dsh profile-boot: ${stage}\n`)
-  } catch {
-    // stderr may be closed during teardown; a lost trace is never fatal.
-  }
+  traceWin7Stage(`profile-boot: ${stage}`)
 }
 
 export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Context; shutdown: ProcessShutdown }> {
@@ -314,11 +313,13 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     }
     traceBootStage('booting')
     const ctx = await boot(NAME, rootConfig, readProfilePatches(NAME, profileContext, composed.profile), async (hostCtx) => {
+      traceBootStage('prepare: entered')
       app.current = hostCtx
       hostCtx.provide('profileContext', profileContext)
       // Before any config-tree entry mounts, so plugins resolve all launch-time
       // environment values from the same immutable launch snapshot.
       hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, options.environment)
+      traceBootStage('prepare: services provided')
       await hostCtx.plugin(PluginPackages, {
         resolution: composed.resolution,
       })
@@ -328,20 +329,25 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       const loaderInternal = (hostCtx as unknown as {
         loader?: { internal?: { import?: (specifier: string, base?: string, attributes?: unknown) => unknown } }
       }).loader?.internal
+      traceBootStage(`prepare: loader internal ${loaderInternal === undefined ? 'absent' : 'present'}`)
       if (loaderInternal !== undefined && typeof loaderInternal.import === 'function') {
         const originalImport = loaderInternal.import.bind(loaderInternal)
         loaderInternal.import = (specifier: string, base?: string, attributes?: unknown) => {
           traceBootStage(`import ${specifier}`)
           return originalImport(specifier, base, attributes)
         }
+        traceBootStage('prepare: import traced')
       }
       // The command line and bounded exit request are launcher facts available
       // to every app plugin that injects the argument snapshot.
+      traceBootStage('prepare: provideCmdline enter')
       provideCmdline(hostCtx, {
         args: options.args,
         exit: code => void shutdown.shutdown(code),
         ready: appReady.service,
       })
+      traceBootStage('prepare: provideCmdline returned')
+      traceBootStage('prepare: returned')
     })
     app.current = ctx
     traceBootStage('booted')

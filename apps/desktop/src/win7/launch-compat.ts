@@ -38,7 +38,15 @@ export function resolveChildWin7Compat(primaryRuntime: string): Win7ChildCompat 
       '--report-on-fatalerror',
       '--report-directory', directory,
     ],
-    environment: { DSH_WIN7_COMPAT_DIR: directory, DSH_WIN7_MODULE_ROOTS: '', DSH_WIN7_TRACE_REQUIRE: '1' },
+    environment: {
+      DSH_WIN7_COMPAT_DIR: directory,
+      DSH_WIN7_MODULE_ROOTS: '',
+      DSH_WIN7_TRACE_REQUIRE: '1',
+      // One ordered trace across the preload, the loader thread and the product
+      // modules: the Host's stderr is a separately buffered Windows pipe that a
+      // native abort truncates.
+      DSH_WIN7_TRACE_FILE: join(directory, 'win7-trace.log'),
+    },
   }
 }
 

@@ -11,10 +11,37 @@
  */
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
-import { writeSync } from 'node:fs'
+import { openSync, writeSync } from 'node:fs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const shimDirectory = join(here, 'shims')
+
+/** Trace sink: the shared trace file when the compatibility runtime names one, else stderr. */
+let sink
+
+/** Resolve the sink once; this module runs on the loader thread, which has its own copy. */
+function traceSink() {
+  if (sink !== undefined) return sink
+  const path = process.env.DSH_WIN7_TRACE_FILE
+  try {
+    sink = path === undefined || path === '' ? 2 : openSync(path, 'a')
+  } catch {
+    sink = 2
+  }
+  return sink
+}
+
+/**
+ * Record one loader event, synchronously, so an abort cannot drop it.
+ * @param {string} stage - Event text.
+ */
+function trace(stage) {
+  try {
+    writeSync(traceSink(), `${new Date().toISOString()} ${stage}\n`)
+  } catch {
+    // stderr may already be closed during teardown.
+  }
+}
 
 /** Built-in specifiers replaced by a Windows 7 shim. */
 const REDIRECTED = new Map([
@@ -47,10 +74,8 @@ export async function resolve(specifier, context, nextResolve) {
  * @returns {Promise<object>} Loaded module record.
  */
 export async function load(url, context, nextLoad) {
-  try {
-    writeSync(2, `win7-loader: ${url}\n`)
-  } catch {
-    // stderr may already be closed during teardown.
-  }
-  return nextLoad(url, context)
+  trace(`loader: ${url}`)
+  const loaded = await nextLoad(url, context)
+  trace(`loaded: ${url}`)
+  return loaded
 }
