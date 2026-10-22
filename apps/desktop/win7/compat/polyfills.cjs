@@ -308,8 +308,29 @@ function installWebSocket() {
   }
 }
 
+/**
+ * Trace CommonJS requires when the diagnostic switch is on.
+ *
+ * ESM load hooks never see `require`, so a native addon loaded through it is
+ * absent from the loader trace. The shell caps stderr to the last 64 KiB, so the
+ * final bare specifiers name the module whose load aborted.
+ */
+function installRequireTrace() {
+  if (process.env.DSH_WIN7_TRACE_REQUIRE !== '1') return
+  const Module = require('node:module')
+  const { writeSync } = require('node:fs')
+  const original = Module._load
+  Module._load = function tracedLoad(request) {
+    if (typeof request === 'string' && !request.startsWith('.') && !request.startsWith('node:')) {
+      try { writeSync(2, `win7-require: ${request}\n`) } catch { /* ignore */ }
+    }
+    return original.apply(this, arguments)
+  }
+}
+
 /** Install every guard that applies to the running runtime. */
 function installWin7Polyfills() {
+  installRequireTrace()
   installPromiseWithResolvers()
   installAbortSignalHelpers()
   installStructuredClone()

@@ -38,7 +38,7 @@ export function resolveChildWin7Compat(primaryRuntime: string): Win7ChildCompat 
       '--report-on-fatalerror',
       '--report-directory', directory,
     ],
-    environment: { DSH_WIN7_COMPAT_DIR: directory, DSH_WIN7_MODULE_ROOTS: '' },
+    environment: { DSH_WIN7_COMPAT_DIR: directory, DSH_WIN7_MODULE_ROOTS: '', DSH_WIN7_TRACE_REQUIRE: '1' },
   }
 }
 
