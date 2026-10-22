@@ -1,10 +1,45 @@
 /** Electron Node-mode child lifecycle for the shared Web application. */
 
 import { spawn, type ChildProcess } from 'node:child_process'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { desktopNodeEnvironment } from './node-environment.ts'
 import { resolveChildWin7Compat, win7ModuleRootEnvironment } from './win7/launch-compat.ts'
+
+/**
+ * Summarize the newest Node fatal-error report in the compatibility runtime.
+ *
+ * `--report-on-fatalerror` writes a JSON report when the runtime aborts natively,
+ * where the child's stderr carries no JavaScript stack. Surfacing the JavaScript
+ * message/stack and native frames names the crash site instead of only the code.
+ * @param directory - Compatibility runtime that receives the reports.
+ * @returns A trimmed report summary, or undefined when none was written.
+ */
+function readFatalReport(directory: string): string | undefined {
+  try {
+    const newest = readdirSync(directory)
+      .filter(name => name.startsWith('report.') && name.endsWith('.json'))
+      .map(name => ({ name, time: statSync(join(directory, name)).mtimeMs }))
+      .sort((left, right) => right.time - left.time)[0]
+    if (newest === undefined) return undefined
+    const report = JSON.parse(readFileSync(join(directory, newest.name), 'utf8')) as {
+      javascriptStack?: { message?: string; stack?: readonly string[] }
+      nativeStack?: readonly { symbol?: string }[]
+    }
+    const lines: string[] = []
+    if (report.javascriptStack?.message !== undefined) lines.push(`message: ${report.javascriptStack.message}`)
+    if (report.javascriptStack?.stack !== undefined) {
+      lines.push(`javascript: ${report.javascriptStack.stack.slice(0, 10).join(' | ')}`)
+    }
+    if (report.nativeStack !== undefined) {
+      lines.push(`native: ${report.nativeStack.slice(0, 10).map(frame => frame.symbol ?? '?').join(' | ')}`)
+    }
+    return lines.length === 0 ? `report: ${newest.name}` : lines.join('\n')
+  } catch {
+    return undefined
+  }
+}
 
 interface ReadyEvent {
   readonly type: 'ready'
@@ -236,7 +271,11 @@ export class DesktopHostProcess {
     child.once('error', (error) => { this.fail(error) })
     this.exitPromise = new Promise<void>((resolve) => {
       child.once('close', (code) => {
-        const suffix = this.stderr.trim() === '' ? '' : `: ${this.stderr.trim()}`
+        let suffix = this.stderr.trim() === '' ? '' : `: ${this.stderr.trim()}`
+        if (code !== 0 && code !== null && win7 !== undefined) {
+          const report = readFatalReport(win7.directory)
+          if (report !== undefined) suffix += `\n[fatal report]\n${report}`
+        }
         if (code !== 0 && code !== null) this.fail(new Error(`dsh desktop host exited with ${String(code)}${suffix}`))
         else this.fail(new Error(`dsh desktop host stopped${suffix}`))
         resolve()

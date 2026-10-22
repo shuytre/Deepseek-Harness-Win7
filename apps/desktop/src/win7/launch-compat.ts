@@ -33,6 +33,10 @@ export function resolveChildWin7Compat(primaryRuntime: string): Win7ChildCompat 
     args: [
       '--require', join(directory, 'polyfills.cjs'),
       '--experimental-loader', pathToFileURL(join(directory, 'loader.mjs')).href,
+      // A native abort on Node 16 leaves no JavaScript stack in stderr; the
+      // report carries the JavaScript/native stack that names the crash site.
+      '--report-on-fatalerror',
+      '--report-directory', directory,
     ],
     environment: { DSH_WIN7_COMPAT_DIR: directory, DSH_WIN7_MODULE_ROOTS: '' },
   }
