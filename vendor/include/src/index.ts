@@ -1,10 +1,32 @@
 import { EntryGroup, EntryTree, isJsExpr, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import { Context, Service } from '@deepseek-ai/cordis'
+import { openSync, writeSync } from 'node:fs'
 import { extname } from 'node:path'
 import { access, constants, readFile, rename, writeFile } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import * as yaml from 'js-yaml'
+
+/** Cached descriptor for the compatibility trace file, when the runtime names one. */
+let traceSink: number | undefined
+
+/**
+ * Record one include stage in the compatibility trace file.
+ *
+ * The Windows 7 track's Host aborts natively inside the tree mount, so every
+ * phase up to the abort has to reach disk synchronously.
+ * @param stage - Stage text.
+ */
+function traceInclude(stage: string): void {
+  const path = process.env.DSH_WIN7_TRACE_FILE
+  if (path === undefined || path === '') return
+  try {
+    if (traceSink === undefined) traceSink = openSync(path, 'a')
+    writeSync(traceSink, `${new Date().toISOString()} ${stage}\n`)
+  } catch {
+    // A closed sink during teardown must not change mount behaviour.
+  }
+}
 
 const JsExpr = new yaml.Type('tag:yaml.org,2002:js', {
   kind: 'scalar',
@@ -211,11 +233,14 @@ export class Include extends EntryTree {
   }
 
   private async read(forced = false) {
+    traceInclude(`include: reading ${this.filename}`)
     const content = await readFile(this.filename, 'utf8')
+    traceInclude(`include: read bytes ${content.length}`)
     if (!forced && this.content === content) return false
     let data: any
     if (this.type === 'application/yaml') {
       data = yaml.load(content, { schema: entryListSchema })
+      traceInclude('include: yaml parsed')
     } else if (this.type === 'application/json') {
       data = JSON.parse(content)
     } else {
@@ -243,6 +268,7 @@ export class Include extends EntryTree {
   }
 
   async* [Service.init]() {
+    traceInclude(`include: init ${this.filename}`)
     try {
       await this.read()
     } catch (error) {
@@ -257,9 +283,12 @@ export class Include extends EntryTree {
         throw new Error(`config file not found: ${this.filename}`)
       }
     }
+    traceInclude(`include: read ${Array.isArray(this.data) ? this.data.length : 0} entries`)
 
     yield () => this.stop()
+    traceInclude('include: updating root')
     await this.root.update(this.applyPatches(this.data!))
+    traceInclude('include: root updated')
   }
 
   async stop() {
