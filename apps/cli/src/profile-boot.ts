@@ -323,6 +323,18 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
         resolution: composed.resolution,
       })
       traceBootStage('plugin-packages mounted')
+      // The config tree mounts after this callback through the loader's internal
+      // import; log each specifier so a native abort names the failing row.
+      const loaderInternal = (hostCtx as unknown as {
+        loader?: { internal?: { import?: (specifier: string, base?: string, attributes?: unknown) => unknown } }
+      }).loader?.internal
+      if (loaderInternal !== undefined && typeof loaderInternal.import === 'function') {
+        const originalImport = loaderInternal.import.bind(loaderInternal)
+        loaderInternal.import = (specifier: string, base?: string, attributes?: unknown) => {
+          traceBootStage(`import ${specifier}`)
+          return originalImport(specifier, base, attributes)
+        }
+      }
       // The command line and bounded exit request are launcher facts available
       // to every app plugin that injects the argument snapshot.
       provideCmdline(hostCtx, {
