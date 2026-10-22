@@ -1,30 +1,7 @@
 import { composeError, Context } from '@deepseek-ai/cordis'
 import { isNonNullable, type Dict } from '@deepseek-ai/cosmokit'
-import { openSync, writeSync } from 'node:fs'
 import { Entry, type EntryOptions } from './entry.ts'
 import { EntryGroup } from './group.ts'
-
-/** Cached descriptor for the compatibility trace file, when the runtime names one. */
-let traceSink: number | undefined
-
-/**
- * Record one loader-import stage in the compatibility trace file.
- *
- * The Windows 7 track's Host aborts natively while its plugin tree mounts, so
- * the module that was being imported has to be named before the abort drops
- * every buffered write.
- * @param stage - Stage text.
- */
-function traceImport(stage: string): void {
-  const path = process.env.DSH_WIN7_TRACE_FILE
-  if (path === undefined || path === '') return
-  try {
-    if (traceSink === undefined) traceSink = openSync(path, 'a')
-    writeSync(traceSink, `${new Date().toISOString()} ${stage}\n`)
-  } catch {
-    // A closed sink during teardown must not change loader behaviour.
-  }
-}
 
 /** Mutable tree of loader entries. Persistence is supplied by subclasses. */
 export abstract class EntryTree {
@@ -141,22 +118,16 @@ export abstract class EntryTree {
       // onImport.tracePromise.__proto__
       // internal.import
       info.offset += 3
-      traceImport(`tree.import: ${name}`)
       if (this.ctx.loader.internal) {
-        const namespace = await this.ctx.loader.internal.import(name, this.ctx.baseUrl!, {})
-        traceImport(`tree.imported: ${name}`)
-        return namespace
+        return await this.ctx.loader.internal.import(name, this.ctx.baseUrl!, {})
       } else if (name.startsWith('.')) {
-        const namespace = await import(/* @vite-ignore */new URL(name, this.ctx.baseUrl).href)
-        traceImport(`tree.imported: ${name}`)
-        return namespace
+        return await import(/* @vite-ignore */new URL(name, this.ctx.baseUrl).href)
       } else {
-        const namespace = await import(/* @vite-ignore */name)
-        traceImport(`tree.imported: ${name}`)
-        return namespace
+        return await import(/* @vite-ignore */name)
       }
     }, getOuterStack)
   }
+
   /** Persist current tree state. In-memory trees may implement this as a no-op. */
   abstract write(): void
 }
