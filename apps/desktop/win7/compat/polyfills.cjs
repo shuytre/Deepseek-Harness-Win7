@@ -341,11 +341,16 @@ let traceSink
  */
 function traceStage(stage) {
   try {
+    const fs = require('node:fs')
+    const line = `${new Date().toISOString()} ${stage}\n`
     if (traceSink === undefined) {
       const path = process.env.DSH_WIN7_TRACE_FILE
-      traceSink = path === undefined || path === '' ? 2 : require('node:fs').openSync(path, 'a')
+      traceSink = path === undefined || path === '' ? 2 : fs.openSync(path, 'a')
     }
-    require('node:fs').writeSync(traceSink, `${new Date().toISOString()} ${stage}\n`)
+    fs.writeSync(traceSink, line)
+    // Mirror to stderr as well: the shell keeps the tail of that pipe, so the
+    // last stages survive even if the trace file never arrives.
+    if (traceSink !== 2) fs.writeSync(2, line)
   } catch {
     // A closed sink during teardown must not turn a trace into a failure.
   }

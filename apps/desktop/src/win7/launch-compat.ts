@@ -44,8 +44,9 @@ export function resolveChildWin7Compat(primaryRuntime: string): Win7ChildCompat 
       DSH_WIN7_TRACE_REQUIRE: '1',
       // One ordered trace across the preload, the loader thread and the product
       // modules: the Host's stderr is a separately buffered Windows pipe that a
-      // native abort truncates.
-      DSH_WIN7_TRACE_FILE: join(directory, 'win7-trace.log'),
+      // native abort truncates. The packaging orchestrator names the file, so
+      // the trace lands where the diagnostics commit collects it.
+      DSH_WIN7_TRACE_FILE: process.env.DSH_WIN7_TRACE_FILE ?? join(directory, 'win7-trace.log'),
     },
   }
 }

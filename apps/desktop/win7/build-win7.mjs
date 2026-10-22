@@ -42,6 +42,10 @@ const PACKAGING_ENVIRONMENT = {
   DSH_DESKTOP_TARGET_PLATFORM: 'win32',
   DSH_DESKTOP_TARGET_ARCH: 'x64',
   DSH_DESKTOP_UNSIGNED: signed ? '0' : '1',
+  // The compatibility runtime writes its ordered boot trace here: inside the step
+  // directory the diagnostics commit already collects, instead of inside the
+  // runtime tree the packaging steps rebuild.
+  DSH_WIN7_TRACE_FILE: join(RUN_DIRECTORY, 'win7-trace.log'),
   // The Windows 7 track ships no update feed, so the policy origin stays unset.
   DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: process.env.DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN ?? 'https://example.invalid',
 }
@@ -155,14 +159,16 @@ function publishArtifacts() {
  * otherwise collect.
  */
 function collectBootTrace() {
-  const source = join(BUILD_PATHS_ROOT, 'runtime', 'win7-compat', 'win7-trace.log')
+  const source = PACKAGING_ENVIRONMENT.DSH_WIN7_TRACE_FILE
   if (!existsSync(source)) {
-    stepResults.push({ name: 'trace', code: 1, detail: 'the compatibility runtime wrote no boot trace' })
+    const compat = join(BUILD_PATHS_ROOT, 'runtime', 'win7-compat')
+    const listing = existsSync(compat) ? readdirSync(compat).join(', ') : 'no compat runtime directory'
+    stepResults.push({ name: 'trace', code: 1, detail: `no boot trace at ${source}; compat holds: ${listing}` })
     return
   }
   const destination = join(RUN_DIRECTORY, 'win7-trace.log')
   mkdirSync(RUN_DIRECTORY, { recursive: true })
-  cpSync(source, destination)
+  if (resolve(source) !== resolve(destination)) cpSync(source, destination)
   const lines = readFileSync(destination, 'utf8').split('\n').filter(Boolean)
   stepResults.push({
     name: 'trace',
