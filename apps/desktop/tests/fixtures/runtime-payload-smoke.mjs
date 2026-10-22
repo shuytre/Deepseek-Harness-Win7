@@ -108,6 +108,13 @@ function checkKoffi() {
 
 /** Encode and decode a pixel through the packaged libvips binary. */
 async function checkSharp() {
+  // sharp 0.35 targets napi-v9 and declares node >= 20.9; the Windows 7 runtime
+  // is Node 16, where the packaged binary cannot load. Image features degrade
+  // there and attachment-local requires sharp lazily, so boot is unaffected.
+  if (Number(process.versions.node.split('.')[0]) < 20) {
+    console.error('runtime payload: sharp requires Node >= 20.9; skipping image check')
+    return
+  }
   const sharp = requireRuntime('sharp')
   const pixel = Buffer.from([17, 103, 231])
   const png = await sharp(pixel, { raw: { width: 1, height: 1, channels: 3 } }).png().toBuffer()
