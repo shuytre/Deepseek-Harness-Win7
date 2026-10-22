@@ -1,5 +1,5 @@
 /** Resolve packaged Office engine manifests from their complete, unpacked resource directories. */
-import { registerHooks, type ModuleHooks } from 'node:module'
+import NodeModule, { type ModuleHooks } from 'node:module'
 import { realpathSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -26,6 +26,13 @@ export function installOfficeEngineResolution(runtimeDir: string): ModuleHooks |
   const archive = dirname(root)
   const source = pathToFileURL(join(root, 'node_modules', '@deepseek-ai', 'libreoffice-kit-')).href
   const destination = pathToFileURL(join(`${archive}.unpacked`, relative(archive, root), 'node_modules', '@deepseek-ai', 'libreoffice-kit-')).href
+  // registerHooks arrived in Node 22.15; the Windows 7 runtime is Node 16. There
+  // the packaged engine path cannot be redirected, so Office engine resolution
+  // degrades instead of failing the whole CLI at import time.
+  const registerHooks = (NodeModule as unknown as {
+    registerHooks?: (hooks: ModuleHooks) => ModuleHooks
+  }).registerHooks
+  if (typeof registerHooks !== 'function') return undefined
   return registerHooks({
     resolve(specifier, context, nextResolve) {
       const resolved = nextResolve(specifier, context)

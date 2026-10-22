@@ -1,6 +1,8 @@
 /** Launch the Desktop profile through the Web application and report its URL to Electron. */
 
+import { realpathSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { inspect } from 'node:util'
 import { loadLayeredEnv, loadProfileDirectory, reportSkippedBundles } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
@@ -107,7 +109,10 @@ async function main(): Promise<void> {
 /** Upper bound of the startup diagnostic carried over IPC; the head holds the message and stack. */
 const MAX_FATAL_DIAGNOSTIC_CHARS = 64 * 1024
 
-if (import.meta.main) {
+// import.meta.main is Node 22.19+; the Windows 7 runtime is Node 16.
+const isMain = (import.meta as ImportMeta & { main?: boolean }).main
+  ?? (process.argv[1] !== undefined && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)))
+if (isMain) {
   main().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error)
     // The shell receives the complete inspected error here, not through stderr:

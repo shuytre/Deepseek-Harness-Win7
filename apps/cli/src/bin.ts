@@ -6,6 +6,8 @@
 
 /* v8 ignore file -- built-bin acceptance exercises this self-executing dispatch. */
 
+import { realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { getDshRuntimeVersion, loadLayeredEnv, StartupError } from '@deepseek-ai/dsh-app-boot'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { parseDshArgs } from './args.ts'
@@ -73,6 +75,9 @@ export async function runCli(options: RunCliOptions = {}): Promise<void> {
   }
 }
 
-if (import.meta.main) {
+// import.meta.main is Node 22.19+; the Windows 7 runtime is Node 16.
+const isMain = (import.meta as ImportMeta & { main?: boolean }).main
+  ?? (process.argv[1] !== undefined && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)))
+if (isMain) {
   await runCli()
 }
