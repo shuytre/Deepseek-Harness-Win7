@@ -199,15 +199,28 @@ function collectBootTrace() {
  */
 async function probeEntryImportsFromTrace() {
   const tracePath = PACKAGING_ENVIRONMENT.DSH_WIN7_TRACE_FILE
+  const probeFile = join(RUN_DIRECTORY, 'win7-probe.json')
+  // The packaging step replays the imports itself, while the runtime exists.
+  if (existsSync(probeFile)) {
+    const probe = JSON.parse(readFileSync(probeFile, 'utf8'))
+    stepResults.push({ name: 'probe', code: probe.deadCount === 0 ? 0 : 1, detail: probe.summary, probes: probe.probeCount })
+    return
+  }
   if (!existsSync(tracePath)) {
     stepResults.push({ name: 'probe', code: 2, detail: `no boot trace at ${tracePath}` })
     return
   }
   const dshRoot = join(BUILD_PATHS_ROOT, 'dsh')
   const compat = join(BUILD_PATHS_ROOT, 'runtime', 'win7-compat')
-  const electron = join(BUILD_PATHS_ROOT, 'electron', 'electron.exe')
-  if (!existsSync(electron) || !existsSync(dshRoot)) {
-    stepResults.push({ name: 'probe', code: 2, detail: 'the packaged runtime is not on disk' })
+  const electron = findElectron()
+  const missing = [
+    existsSync(dshRoot) ? undefined : `dsh (${dshRoot})`,
+    existsSync(electron) ? undefined : `electron (${electron})`,
+    existsSync(join(compat, 'polyfills.cjs')) ? undefined : `compat (${compat})`,
+  ].filter(entry => entry !== undefined)
+  if (missing.length > 0) {
+    const listing = existsSync(BUILD_PATHS_ROOT) ? readdirSync(BUILD_PATHS_ROOT).join(', ') : 'no target directory'
+    stepResults.push({ name: 'probe', code: 2, detail: `missing ${missing.join(', ')}; target holds ${listing}` })
     return
   }
   const { specifiers, summary, deadCount, probeCount } = await probeEntryImports({
@@ -220,6 +233,23 @@ async function probeEntryImportsFromTrace() {
   mkdirSync(RUN_DIRECTORY, { recursive: true })
   writeFileSync(join(RUN_DIRECTORY, 'win7-probe.json'), `${JSON.stringify({ summary, specifiers }, undefined, 2)}\n`)
   stepResults.push({ name: 'probe', code: deadCount === 0 ? 0 : 1, detail: summary, probes: probeCount })
+}
+
+/**
+ * Locate the packaged Node 16 executable among the downloaded Electron layouts.
+ * @returns Absolute path to `electron.exe`, or the conventional path when none matched.
+ */
+function findElectron() {
+  const conventional = join(BUILD_PATHS_ROOT, 'electron', 'electron.exe')
+  if (existsSync(conventional)) return conventional
+  if (!existsSync(BUILD_PATHS_ROOT)) return conventional
+  for (const name of readdirSync(BUILD_PATHS_ROOT)) {
+    if (!name.toLowerCase().startsWith('electron')) continue
+    for (const candidate of [join(BUILD_PATHS_ROOT, name, 'electron.exe'), join(BUILD_PATHS_ROOT, name, 'electron', 'electron.exe')]) {
+      if (existsSync(candidate)) return candidate
+    }
+  }
+  return conventional
 }
 
 async function main() {

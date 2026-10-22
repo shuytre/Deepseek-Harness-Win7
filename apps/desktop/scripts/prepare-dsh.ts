@@ -4,7 +4,7 @@ import { packagingStep } from './packaging-step.mjs'
 import { spawn } from 'node:child_process'
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, join, relative, resolve } from 'node:path'
+import { delimiter, dirname, join, relative, resolve } from 'node:path'
 import { desktopNodeEnvironment } from '../src/node-environment.ts'
 import { createRuntimeProjectMetadata } from '../src/project-manager.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
@@ -22,7 +22,7 @@ import { smokePreparedRuntime } from './smoke-prepared-runtime.ts'
 import { prepareRuntimeManifests } from './prepare-runtime-manifests.ts'
 import { prepareRuntimePatches, verifyRuntimePatches } from './prepare-runtime-patches.ts'
 import { desktopRuntimeOverrides } from './runtime-patch-policy.ts'
-import { win7Profile } from '../win7/profile.mjs'
+import { WIN7_COMPAT_DIRECTORY, win7Profile } from '../win7/profile.mjs'
 import { writeDesktopRuntime, verifyDesktopRuntime } from '../src/runtime-tree.ts'
 import {
   resolveDesktopAppId,
@@ -181,9 +181,36 @@ async function main(): Promise<void> {
       await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:verify-after-smoke', () => verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target))
     }
   } catch (error) {
-    // A Windows 7 diagnostic run keeps the produced runtime so the per-entry
-    // probe can replay the boot's imports after this step has failed.
-    if (process.env.DSH_WIN7_TRACE_FILE === undefined) rmSync(DSH_OUTPUT_ROOT, { recursive: true, force: true })
+    // A Windows 7 diagnostic run replays the failed boot's entry imports here,
+    // while the produced runtime still exists, and keeps the tree afterwards:
+    // the probe needs the same tree and the same Node 16 the Host used.
+    const tracePath = process.env.DSH_WIN7_TRACE_FILE
+    if (tracePath === undefined) {
+      rmSync(DSH_OUTPUT_ROOT, { recursive: true, force: true })
+    } else {
+      try {
+        const probe = await import('../win7/probe-imports.mjs') as {
+          probeEntryImports(options: {
+            electron: string
+            dshRoot: string
+            compat: string
+            tracePath: string
+            log: (line: string) => void
+          }): Promise<{ specifiers: readonly unknown[]; summary: string; probeCount: number; deadCount: number }>
+        }
+        const result = await probe.probeEntryImports({
+          electron: NODE,
+          dshRoot: DSH_OUTPUT_ROOT,
+          compat: join(RUNTIME_ROOT, WIN7_COMPAT_DIRECTORY),
+          tracePath,
+          log: (line) => { process.stdout.write(`${line}\n`) },
+        })
+        writeFileSync(join(dirname(tracePath), 'win7-probe.json'), `${JSON.stringify(result, undefined, 2)}\n`)
+        process.stdout.write(`desktop runtime: win7 entry probe -> ${result.summary}\n`)
+      } catch (probeError) {
+        process.stdout.write(`desktop runtime: win7 entry probe failed: ${String(probeError)}\n`)
+      }
+    }
     throw error
   } finally {
     let cleaned = false
