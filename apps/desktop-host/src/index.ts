@@ -17,6 +17,11 @@ import { installDesktopQuitInspection } from './quit-inspection.ts'
 import { installPlatformSessionPublisher } from './platform-session.ts'
 import { installOfficeEngineResolution } from './office-engine.ts'
 
+// Boot-stage traces go to stderr, which the shell folds into its startup
+// diagnostic; a native abort leaves no JavaScript stack, so the last stage names
+// the crash site.
+console.error(`dsh host: module loaded (node ${process.version})`)
+
 async function main(): Promise<void> {
   const runtimeDir = process.argv[2] as string
   const projectDir = process.argv[3] as string
@@ -24,6 +29,7 @@ async function main(): Promise<void> {
   const installAnchor = join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')
   const profile = loadProfileDirectory('dsh', projectDir, installAnchor)
   reportSkippedBundles('dsh', profile)
+  console.error('dsh host: profile resolved')
   const application = runProfile({
     environment: loadLayeredEnv('dsh'),
     profile: 'desktop',
@@ -91,7 +97,9 @@ async function main(): Promise<void> {
     })().catch((error: unknown) => { console.error(error) })
   })
   process.once('disconnect', () => { void stop() })
+  console.error('dsh host: awaiting application')
   const { ctx } = await application
+  console.error('dsh host: application ready')
   control.updateTasks = installDesktopUpdateTaskControl(ctx)
   control.quitInspection = installDesktopQuitInspection(ctx)
   await ctx.plugin(desktopOffice, {
