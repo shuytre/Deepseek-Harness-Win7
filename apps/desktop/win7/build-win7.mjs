@@ -19,6 +19,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, wri
 import { delimiter, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { scanDirectory } from './check/scan-pe-imports.mjs'
+import { probeEntryImports } from './probe-imports.mjs'
 import { win7Profile } from './profile.mjs'
 
 const REPOSITORY_ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)))
@@ -190,6 +191,37 @@ function collectBootTrace() {
   })
 }
 
+/**
+ * Import each traced entry in its own process and record which one dies.
+ *
+ * The Host aborts natively, so the parent sees one exit code and no stack; a
+ * per-entry child process converts that into a named verdict.
+ */
+async function probeEntryImportsFromTrace() {
+  const tracePath = PACKAGING_ENVIRONMENT.DSH_WIN7_TRACE_FILE
+  if (!existsSync(tracePath)) {
+    stepResults.push({ name: 'probe', code: 2, detail: `no boot trace at ${tracePath}` })
+    return
+  }
+  const dshRoot = join(BUILD_PATHS_ROOT, 'dsh')
+  const compat = join(BUILD_PATHS_ROOT, 'runtime', 'win7-compat')
+  const electron = join(BUILD_PATHS_ROOT, 'electron', 'electron.exe')
+  if (!existsSync(electron) || !existsSync(dshRoot)) {
+    stepResults.push({ name: 'probe', code: 2, detail: 'the packaged runtime is not on disk' })
+    return
+  }
+  const { specifiers, summary, deadCount, probeCount } = await probeEntryImports({
+    electron,
+    dshRoot,
+    compat,
+    tracePath,
+    log: (line) => { process.stdout.write(`${line}\n`) },
+  })
+  mkdirSync(RUN_DIRECTORY, { recursive: true })
+  writeFileSync(join(RUN_DIRECTORY, 'win7-probe.json'), `${JSON.stringify({ summary, specifiers }, undefined, 2)}\n`)
+  stepResults.push({ name: 'probe', code: deadCount === 0 ? 0 : 1, detail: summary, probes: probeCount })
+}
+
 async function main() {
   const profile = win7Profile(PACKAGING_ENVIRONMENT)
   process.stdout.write(`[win7] profile: Electron ${profile.electronVersion}, Node ${profile.nodeVersion}, Python ${profile.pythonVersion}\n`)
@@ -207,6 +239,7 @@ async function main() {
   await runStep('package', packageManagerCommand(['--dir', 'apps/desktop', 'run', signed ? 'package:win:x64' : 'package:win:x64:unsigned']))
   if (!skipScan) await scanPackagedPayload()
   collectBootTrace()
+  await probeEntryImportsFromTrace()
   const published = publishArtifacts()
   writeFileSync(join(RUN_DIRECTORY, 'win7-run.json'), `${JSON.stringify({
     schemaVersion: 1,
