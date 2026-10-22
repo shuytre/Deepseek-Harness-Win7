@@ -8,7 +8,9 @@
 
 import { pathToFileURL } from 'node:url'
 import { readFileSync } from 'node:fs'
-import { inspect, parseEnv } from 'node:util'
+// Must stay first: installs the Node 17-22 globals on the Node 16 runtime.
+import './node16-compat.ts'
+import { inspect } from 'node:util'
 import { basename, dirname, isAbsolute, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
 import { Context, type FiberState } from '@deepseek-ai/cordis'
@@ -120,13 +122,20 @@ export function loadEnv(
   binName: string, dir: string = process.cwd(),
   warn: (line: string) => void = line => void process.stderr.write(line),
 ): void {
+  let content: string
   try {
-    process.loadEnvFile(resolve(dir, '.env'))
+    content = readFileSync(resolve(dir, '.env'), 'utf8')
   } catch (error) {
     if ((error as NodeJS.ErrnoException | null)?.code !== 'ENOENT') {
       warn(`${binName}: failed to load .env: ${String(error)}\n`)
     }
     // ENOENT (no .env) is fine — rely on the ambient environment.
+    return
+  }
+  // process.loadEnvFile only exists from Node 20.12; load manually and keep the
+  // --env-file precedence, where an inherited variable is not replaced.
+  for (const [name, value] of Object.entries(parseEnvEntries(content))) {
+    if (process.env[name] === undefined) process.env[name] = value
   }
 }
 
@@ -179,6 +188,43 @@ function isBootstrapOnly(name: string): boolean {
 }
 
 /**
+ * Parse `.env` content into KEY=VALUE entries.
+ *
+ * `util.parseEnv` only exists from Node 20.12; the Windows 7 runtime is Node 16,
+ * where importing it fails at module instantiation. This local parser mirrors the
+ * surface the layered `.env` files use: `#` comment lines, optional single/double
+ * quotes, and the documented double-quote escapes. Unquoted values keep the text
+ * after the first `=`.
+ * @param content - the `.env` file's text.
+ * @returns the parsed entries.
+ */
+function parseEnvEntries(content: string): Record<string, string> {
+  const values: Record<string, string> = {}
+  for (const rawLine of content.split(/\r?\n/u)) {
+    const line = rawLine.trim()
+    if (line === '' || line.startsWith('#')) continue
+    const equals = line.indexOf('=')
+    if (equals < 0) continue
+    const name = line.slice(0, equals).trim()
+    if (name === '') continue
+    let value = line.slice(equals + 1).trim()
+    if (value.length >= 2) {
+      const quote = value[0]
+      if ((quote === '"' || quote === "'") && value.endsWith(quote)) {
+        value = value.slice(1, -1)
+        if (quote === '"') {
+          value = value.replace(/\\([nrt\\'"])/gu, (_match, escape: string) => (
+            escape === 'n' ? '\n' : escape === 'r' ? '\r' : escape === 't' ? '\t' : escape
+          ))
+        }
+      }
+    }
+    values[name] = value
+  }
+  return values
+}
+
+/**
  * Parse one directory's `.env` without applying it, rejecting bootstrap-only
  * names before any value is materialized.
  * @param binName - the diagnostic prefix on the thrown error.
@@ -204,7 +250,7 @@ function readEnvLayer(
     return undefined
   }
   // Parse once so validation and materialization use exactly the same entries.
-  const values = parseEnv(content) as Record<string, string>
+  const values = parseEnvEntries(content)
   for (const name of Object.keys(values)) {
     if (!isBootstrapOnly(name)) continue
     const proxyName = HOME_LAYER_PROXY_NAMES.has(name.toUpperCase())
