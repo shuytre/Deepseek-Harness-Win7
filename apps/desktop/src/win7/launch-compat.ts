@@ -32,7 +32,13 @@ export function resolveChildWin7Compat(primaryRuntime: string): Win7ChildCompat 
     directory,
     args: [
       '--require', join(directory, 'polyfills.cjs'),
-      '--experimental-loader', pathToFileURL(join(directory, 'loader.mjs')).href,
+      // The ESM loader is the one mechanism Node 16 has for redirecting a
+      // builtin specifier, and it is also the only experimental subsystem in
+      // this launch. It is switched off for the diagnostic run that decides
+      // whether the abort belongs to it.
+      ...(process.env.DSH_WIN7_ESM_LOADER === '0'
+        ? []
+        : ['--experimental-loader', pathToFileURL(join(directory, 'loader.mjs')).href]),
       // A native abort on Node 16 leaves no JavaScript stack in stderr; the
       // report carries the JavaScript/native stack that names the crash site.
       '--report-on-fatalerror',
