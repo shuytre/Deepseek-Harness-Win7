@@ -163,9 +163,18 @@ function publishArtifacts() {
  * otherwise collect.
  */
 function collectBootTrace() {
+  const compat = join(BUILD_PATHS_ROOT, 'runtime', 'win7-compat')
+  // The runtime writes its fatal-error report beside the compatibility files;
+  // that report is the only place a native stack survives the abort.
+  if (existsSync(compat)) {
+    for (const name of readdirSync(compat)) {
+      if (!/^report\..*\.json$/u.test(name) && !name.endsWith('.mdmp')) continue
+      mkdirSync(RUN_DIRECTORY, { recursive: true })
+      cpSync(join(compat, name), join(RUN_DIRECTORY, name))
+    }
+  }
   const source = PACKAGING_ENVIRONMENT.DSH_WIN7_TRACE_FILE
   if (!existsSync(source)) {
-    const compat = join(BUILD_PATHS_ROOT, 'runtime', 'win7-compat')
     const listing = existsSync(compat) ? readdirSync(compat).join(', ') : 'no compat runtime directory'
     stepResults.push({ name: 'trace', code: 1, detail: `no boot trace at ${source}; compat holds: ${listing}` })
     return

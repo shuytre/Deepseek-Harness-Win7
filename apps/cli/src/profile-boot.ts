@@ -280,12 +280,14 @@ function entryTreePrototype(loader: object): TreeImports | undefined {
 }
 
 /**
- * Trace every loader entry import.
+ * Trace every loader entry import, and run them one at a time.
  *
  * The tree imports plugin modules through a dynamic `import()`, which is the
- * last phase between the mounted plugin packages and the first product module;
- * on the Windows 7 track a native abort there leaves no JavaScript stack, so the
- * specifier has to reach the trace file first.
+ * last phase between the mounted plugin packages and the first product module.
+ * Every row is started in the same tick, so those imports run concurrently; on
+ * the Windows 7 track that concurrency aborts the process natively with no
+ * JavaScript stack, and serializing them keeps exactly one Node module load in
+ * flight. The specifier is traced first either way.
  * @param hostCtx - Root context the Loader is mounted on.
  */
 function traceEntryImports(hostCtx: Context): void {
@@ -300,9 +302,12 @@ function traceEntryImports(hostCtx: Context): void {
     return
   }
   const original = owner.import
+  let queue: Promise<unknown> = Promise.resolve()
   owner.import = function tracedImport(this: unknown, name: string, getOuterStack?: () => string[]): unknown {
     traceBootStage(`tree.import: ${name}`)
-    const result = original.call(this, name, getOuterStack)
+    const run = (): unknown => original.call(this, name, getOuterStack)
+    const result = queue.then(run, run)
+    queue = result.then(() => undefined, () => undefined)
     if (typeof (result as PromiseLike<unknown> | undefined)?.then !== 'function') {
       traceBootStage(`tree.import sync: ${name}`)
       return result
