@@ -76,6 +76,11 @@ function requireInternal(id: string): unknown {
       // Some internals, such as internal/bootstrap/realm, stay private under --expose-internals.
     }
   }
+  // The addon's prebuilt binary targets NAPI 9 and installs a V8 custom loader;
+  // on a Node 16 runtime that `require` aborts the process instead of throwing,
+  // so the version probe happens before it and leaves the caller without the
+  // interface it reports as missing.
+  if (Number.parseInt(process.versions.node, 10) < 20) return undefined
   try {
     return (require('node-addon-require-builtin') as { requireBuiltin(id: string): unknown }).requireBuiltin(id)
   } catch (_error) {

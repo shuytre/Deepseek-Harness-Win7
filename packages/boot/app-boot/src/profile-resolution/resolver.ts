@@ -610,6 +610,13 @@ class ResolutionRouter {
 }
 
 function internalModules(): InternalModules | null {
+  // Decide before touching the addon: its prebuilt binary is compiled against
+  // NAPI 9 and installs a V8 custom loader, so on the Node 16 runtime that the
+  // Windows 7 / Electron 22 track ships the `require` below aborts the process
+  // natively instead of throwing — the abort this track kept hitting right after
+  // the plugin packages mounted. A version probe cannot abort, so it runs first
+  // and leaves the track on Node's native resolution.
+  if (Number.parseInt(process.versions.node, 10) < 20) return null
   try {
     const require = createRequire(import.meta.url)
     const addon = require('node-addon-require-builtin') as { requireBuiltin(moduleId: string): unknown }
