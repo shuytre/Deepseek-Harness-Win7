@@ -22,6 +22,7 @@ import { smokePreparedRuntime } from './smoke-prepared-runtime.ts'
 import { prepareRuntimeManifests } from './prepare-runtime-manifests.ts'
 import { prepareRuntimePatches, verifyRuntimePatches } from './prepare-runtime-patches.ts'
 import { desktopRuntimeOverrides } from './runtime-patch-policy.ts'
+import { probeEntryImports } from '../win7/probe-imports.mjs'
 import { WIN7_COMPAT_DIRECTORY, win7Profile } from '../win7/profile.mjs'
 import { writeDesktopRuntime, verifyDesktopRuntime } from '../src/runtime-tree.ts'
 import {
@@ -189,16 +190,7 @@ async function main(): Promise<void> {
       rmSync(DSH_OUTPUT_ROOT, { recursive: true, force: true })
     } else {
       try {
-        const probe = await import('../win7/probe-imports.mjs') as {
-          probeEntryImports(options: {
-            electron: string
-            dshRoot: string
-            compat: string
-            tracePath: string
-            log: (line: string) => void
-          }): Promise<{ specifiers: readonly unknown[]; summary: string; probeCount: number; deadCount: number }>
-        }
-        const result = await probe.probeEntryImports({
+        const result = await probeEntryImports({
           electron: NODE,
           dshRoot: DSH_OUTPUT_ROOT,
           compat: join(RUNTIME_ROOT, WIN7_COMPAT_DIRECTORY),
