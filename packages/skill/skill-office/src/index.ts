@@ -2,13 +2,32 @@
 
 import { readFileSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join } from 'node:path'
-import { isSea } from 'node:sea'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { BUNDLED_SKILL_RANK, type SkillCandidate, type SkillProvider } from '@deepseek-ai/dsh-skill'
 import { parse as parseYaml } from 'yaml'
+
+const requireFromModule = createRequire(import.meta.url)
+
+/**
+ * Answer `node:sea`'s `isSea()` on every supported runtime.
+ *
+ * The builtin arrives in Node 20.12, and a static import of it is rejected
+ * before any module code runs, which would make this package unloadable on the
+ * Node 16 runtime the Windows 7 track ships. The specifier is assembled at
+ * runtime so a bundle never resolves it at build time.
+ * @returns whether the current process is a Node single executable application.
+ */
+function isSea(): boolean {
+  try {
+    return (requireFromModule(`node:${'sea'}`) as { isSea(): boolean }).isSea()
+  } catch {
+    return false
+  }
+}
 
 const SKILL_NAMES = ['office-docx', 'office-pptx', 'office-xlsx'] as const
 

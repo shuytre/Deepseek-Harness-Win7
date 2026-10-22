@@ -6,10 +6,26 @@
  * @module @deepseek-ai/dsh-storage-sqlite/schema
  */
 
-import { DatabaseSync } from 'node:sqlite'
+import type { DatabaseSync } from 'node:sqlite'
 import { mkdir, open } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { StorageError } from '@deepseek-ai/dsh-storage'
+
+const requireFromModule = createRequire(import.meta.url)
+
+/**
+ * Load `node:sqlite` at first use rather than at module load.
+ *
+ * The builtin arrives in Node 22.5, and a static import of it is rejected before
+ * any module code runs on an older runtime — which would make this backend
+ * unloadable rather than leaving it unavailable. The specifier is assembled at
+ * runtime so a bundle never resolves it at build time.
+ * @returns the runtime's `DatabaseSync` constructor.
+ */
+function databaseSync(): new (path: string) => DatabaseSync {
+  return (requireFromModule(`node:${'sqlite'}`) as { DatabaseSync: new (path: string) => DatabaseSync }).DatabaseSync
+}
 
 /**
  * The on-disk physical layout version, stored in `PRAGMA user_version`.
@@ -63,7 +79,7 @@ export async function openDatabase(path: string, journalMode: JournalMode): Prom
     await mkdir(dirname(actual), { recursive: true, mode: 0o700 })
     await createDatabaseFile(actual)
   }
-  const db = new DatabaseSync(actual)
+  const db = new (databaseSync())(actual)
   try {
     configureDatabase(db, actual, journalMode)
     return db
