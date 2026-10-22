@@ -10,7 +10,7 @@
  * @module @deepseek-ai/dsh/profile-boot
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync, writeSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { FiberState, type Context } from '@deepseek-ai/cordis'
@@ -241,7 +241,24 @@ export interface RunProfileOptions {
  * @returns the settled root context and the shutdown controller.
  * @throws after disposing startup resources; cleanup failures retain the original error.
  */
+/**
+ * Write a boot-stage trace synchronously.
+ *
+ * The desktop Host runs with stderr as a Windows pipe, where stream writes are
+ * buffered; a native abort would drop the last buffered stage. `writeSync` reaches
+ * the pipe before the process dies.
+ * @param stage - human-readable boot phase.
+ */
+function traceBootStage(stage: string): void {
+  try {
+    writeSync(2, `dsh profile-boot: ${stage}\n`)
+  } catch {
+    // stderr may be closed during teardown; a lost trace is never fatal.
+  }
+}
+
 export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Context; shutdown: ProcessShutdown }> {
+  traceBootStage('entered')
   // Before the first plugin mounts and before anything can issue a request: Node's fetch ignores the
   // proxy environment on its own, so every profile would otherwise connect directly. Resolving from
   // the launcher's snapshot — not `process.env` — is what lets a proxy declared in a `.env` layer
@@ -250,6 +267,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     options.environment,
     (message) => { process.stderr.write(`${NAME}: ${message}\n`) },
   )
+  traceBootStage('proxy installed')
 
   const app: { current?: Context } = {}
   let disposal: Promise<void> | undefined
@@ -265,6 +283,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
     const composed = await composeProfile(
       options.profile, options.patchFiles, options.fromDefaultProfile, options.resolvedProfile,
     )
+    traceBootStage('profile composed')
     const appReady = createAppReady()
     const shutdown = createProcessShutdown(dispose)
     const signalShutdown = new AbortController()
@@ -293,6 +312,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       cwd: process.cwd(), home: resolveDshHome(),
       overlays: composed.overlays, telemetryDisabledEnv: process.env.DSH_TELEMETRY_DISABLED,
     }
+    traceBootStage('booting')
     const ctx = await boot(NAME, rootConfig, readProfilePatches(NAME, profileContext, composed.profile), async (hostCtx) => {
       app.current = hostCtx
       hostCtx.provide('profileContext', profileContext)
@@ -302,6 +322,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       await hostCtx.plugin(PluginPackages, {
         resolution: composed.resolution,
       })
+      traceBootStage('plugin-packages mounted')
       // The command line and bounded exit request are launcher facts available
       // to every app plugin that injects the argument snapshot.
       provideCmdline(hostCtx, {
@@ -311,6 +332,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       })
     })
     app.current = ctx
+    traceBootStage('booted')
     if (!signalShutdown.signal.aborted
       && ctx.fiber.state === FiberState.ACTIVE
       && ctx.get('loader') !== undefined) {

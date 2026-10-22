@@ -1,6 +1,6 @@
 /** Launch the Desktop profile through the Web application and report its URL to Electron. */
 
-import { realpathSync } from 'node:fs'
+import { realpathSync, writeSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { inspect } from 'node:util'
@@ -20,7 +20,7 @@ import { installOfficeEngineResolution } from './office-engine.ts'
 // Boot-stage traces go to stderr, which the shell folds into its startup
 // diagnostic; a native abort leaves no JavaScript stack, so the last stage names
 // the crash site.
-console.error(`dsh host: module loaded (node ${process.version})`)
+writeSync(2, `dsh host: module loaded (node ${process.version})\n`)
 
 async function main(): Promise<void> {
   const runtimeDir = process.argv[2] as string
@@ -29,9 +29,11 @@ async function main(): Promise<void> {
   const installAnchor = join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')
   const profile = loadProfileDirectory('dsh', projectDir, installAnchor)
   reportSkippedBundles('dsh', profile)
-  console.error('dsh host: profile resolved')
+  writeSync(2, 'dsh host: profile resolved\n')
+  const environment = loadLayeredEnv('dsh')
+  writeSync(2, 'dsh host: environment loaded\n')
   const application = runProfile({
-    environment: loadLayeredEnv('dsh'),
+    environment,
     profile: 'desktop',
     resolvedProfile: { profile, installAnchor },
     patchFiles: [],
@@ -97,9 +99,9 @@ async function main(): Promise<void> {
     })().catch((error: unknown) => { console.error(error) })
   })
   process.once('disconnect', () => { void stop() })
-  console.error('dsh host: awaiting application')
+  writeSync(2, 'dsh host: awaiting application\n')
   const { ctx } = await application
-  console.error('dsh host: application ready')
+  writeSync(2, 'dsh host: application ready\n')
   control.updateTasks = installDesktopUpdateTaskControl(ctx)
   control.quitInspection = installDesktopQuitInspection(ctx)
   await ctx.plugin(desktopOffice, {
