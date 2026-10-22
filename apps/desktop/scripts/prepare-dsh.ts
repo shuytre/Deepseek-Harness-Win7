@@ -181,7 +181,9 @@ async function main(): Promise<void> {
       await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:verify-after-smoke', () => verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target))
     }
   } catch (error) {
-    rmSync(DSH_OUTPUT_ROOT, { recursive: true, force: true })
+    // A Windows 7 diagnostic run keeps the produced runtime so the per-entry
+    // probe can replay the boot's imports after this step has failed.
+    if (process.env.DSH_WIN7_TRACE_FILE === undefined) rmSync(DSH_OUTPUT_ROOT, { recursive: true, force: true })
     throw error
   } finally {
     let cleaned = false
