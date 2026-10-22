@@ -256,6 +256,68 @@ function traceBootStage(stage: string): void {
   traceWin7Stage(`profile-boot: ${stage}`)
 }
 
+/** A loader tree's module-import entry point. */
+interface TreeImports {
+  import(name: string, getOuterStack?: () => string[]): unknown
+}
+
+/**
+ * Walk to the prototype that owns `import`.
+ *
+ * The Loader and the include's own tree share `EntryTree.prototype`, so patching
+ * it once covers every entry import in the tree.
+ * @param loader - The mounted Loader service.
+ * @returns The owning prototype, or undefined when the shape is unexpected.
+ */
+function entryTreePrototype(loader: object): TreeImports | undefined {
+  let proto: object | null = Object.getPrototypeOf(loader) as object | null
+  while (proto !== null && proto !== Object.prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(proto, 'import')
+    if (descriptor !== undefined && typeof descriptor.value === 'function') return proto as TreeImports
+    proto = Object.getPrototypeOf(proto) as object | null
+  }
+  return undefined
+}
+
+/**
+ * Trace every loader entry import.
+ *
+ * The tree imports plugin modules through a dynamic `import()`, which is the
+ * last phase between the mounted plugin packages and the first product module;
+ * on the Windows 7 track a native abort there leaves no JavaScript stack, so the
+ * specifier has to reach the trace file first.
+ * @param hostCtx - Root context the Loader is mounted on.
+ */
+function traceEntryImports(hostCtx: Context): void {
+  const loader = hostCtx.get('loader')
+  if (loader === undefined) {
+    traceBootStage('prepare: no loader to trace')
+    return
+  }
+  const owner = entryTreePrototype(loader)
+  if (owner === undefined) {
+    traceBootStage('prepare: entry tree import not found')
+    return
+  }
+  const original = owner.import
+  owner.import = function tracedImport(this: unknown, name: string, getOuterStack?: () => string[]): unknown {
+    traceBootStage(`tree.import: ${name}`)
+    const result = original.call(this, name, getOuterStack)
+    if (typeof (result as PromiseLike<unknown> | undefined)?.then !== 'function') {
+      traceBootStage(`tree.import sync: ${name}`)
+      return result
+    }
+    return (result as Promise<unknown>).then(
+      (value) => { traceBootStage(`tree.imported: ${name}`); return value },
+      (error: unknown) => {
+        traceBootStage(`tree.import failed: ${name}: ${String(error)}`)
+        throw error
+      },
+    )
+  }
+  traceBootStage('prepare: entry imports traced')
+}
+
 export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Context; shutdown: ProcessShutdown }> {
   traceBootStage('entered')
   // Before the first plugin mounts and before anything can issue a request: Node's fetch ignores the
@@ -340,6 +402,7 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       }
       // The command line and bounded exit request are launcher facts available
       // to every app plugin that injects the argument snapshot.
+      traceEntryImports(hostCtx)
       traceBootStage('prepare: provideCmdline enter')
       provideCmdline(hostCtx, {
         args: options.args,

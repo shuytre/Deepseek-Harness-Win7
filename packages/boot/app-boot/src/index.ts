@@ -1060,6 +1060,7 @@ export async function boot(
     stage = 'plugin tree failed to load'
     await mountRootInclude(ctx, absoluteConfigPath, patches, bareModuleBaseUrl, binName)
     traceWin7Stage('boot: root include mounted')
+    traceWin7Stage('boot: awaiting loader')
     // A surface can finish and dispose the whole tree while startup is still
     // in flight, before the last entry settles. The Loader service goes with
     // it, and the activation audit describes a live tree — reading `ctx.loader`
