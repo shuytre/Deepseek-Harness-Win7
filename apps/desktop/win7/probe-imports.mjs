@@ -47,7 +47,7 @@ export function tracedSpecifiers(tracePath) {
  * @returns The probe verdict.
  */
 function probeOne(options) {
-  const { electron, dshRoot, compat, specifier, index } = options
+  const { electron, dshRoot, compat, specifier, index, extraArgs = [] } = options
   const loaderDirectory = join(dshRoot, LOADER_PACKAGE)
   const probePath = join(loaderDirectory, `win7-probe-${String(index)}.mjs`)
   const source = [
@@ -68,6 +68,7 @@ function probeOne(options) {
     const child = spawn(electron, [
       '--require', join(compat, 'polyfills.cjs'),
       '--experimental-json-modules',
+      ...extraArgs,
       probePath,
     ], {
       cwd: loaderDirectory,
@@ -121,11 +122,11 @@ function probeOne(options) {
  * @param options - Build paths and the trace to read.
  * @returns Probe records and a one-line summary.
  */
-export async function probeEntryImports({ electron, dshRoot, compat, tracePath, log }) {
-  const specifiers = tracedSpecifiers(tracePath)
+export async function probeEntryImports({ electron, dshRoot, compat, tracePath, log, extraArgs = [], limit }) {
+  const specifiers = tracedSpecifiers(tracePath).slice(0, limit)
   const results = []
   for (const [index, specifier] of specifiers.entries()) {
-    const result = await probeOne({ electron, dshRoot, compat, specifier, index })
+    const result = await probeOne({ electron, dshRoot, compat, specifier, index, extraArgs })
     results.push(result)
     log(`[win7] probe ${String(index + 1)}/${String(specifiers.length)} ${result.verdict} ${specifier}${result.detail === undefined ? '' : ` :: ${result.detail}`}`)
   }

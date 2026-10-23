@@ -207,7 +207,21 @@ async function main(): Promise<void> {
           tracePath,
           log: (line) => { process.stdout.write(`${line}\n`) },
         })
-        writeFileSync(join(dirname(tracePath), 'win7-probe.json'), `${JSON.stringify(result, undefined, 2)}\n`)
+        // The Host launches with a flag the probe does not; replaying the first
+        // entries with it says whether that flag is what kills the boot.
+        const withInternals = await probeEntryImports({
+          electron: NODE,
+          dshRoot: DSH_OUTPUT_ROOT,
+          compat: join(RUNTIME_ROOT, WIN7_COMPAT_DIRECTORY),
+          tracePath,
+          extraArgs: ['--expose-internals'],
+          limit: 3,
+          log: (line) => { process.stdout.write(`${line}\n`) },
+        })
+        writeFileSync(join(dirname(tracePath), 'win7-probe.json'), `${JSON.stringify({
+          ...result,
+          exposeInternals: withInternals,
+        }, undefined, 2)}\n`)
         process.stdout.write(`desktop runtime: win7 entry probe -> ${result.summary}\n`)
       } catch (probeError) {
         process.stdout.write(`desktop runtime: win7 entry probe failed: ${String(probeError)}\n`)

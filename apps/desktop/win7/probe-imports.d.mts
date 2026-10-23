@@ -4,7 +4,7 @@
 export interface ProbeRecord {
   readonly specifier: string
   readonly code: number | null
-  readonly verdict: 'ok' | 'timeout' | 'import-error' | 'process-died' | 'spawn-failed'
+  readonly verdict: 'ok' | 'absent' | 'timeout' | 'import-error' | 'process-died' | 'spawn-failed'
   readonly detail?: string
 }
 
@@ -34,4 +34,8 @@ export function probeEntryImports(options: {
   compat: string
   tracePath: string
   log: (line: string) => void
+  /** Extra Node flags for every probe process. */
+  extraArgs?: readonly string[]
+  /** Probe only the first N entries. */
+  limit?: number
 }): Promise<ProbeOutcome>

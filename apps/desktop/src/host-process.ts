@@ -228,7 +228,11 @@ export class DesktopHostProcess {
     // spawns exactly the argument list it always did.
     const win7 = resolveChildWin7Compat(primaryRuntime)
     const child = spawn(this.node, [
-      '--expose-internals',
+      // The Windows 7 track runs Node 16, where no consumer of `internals/…`
+      // reaches past its version probe, and the flag changes how V8 exposes the
+      // native module map — the one launch difference between the Host and a
+      // standalone import of the same entry.
+      ...(win7 === undefined ? ['--expose-internals'] : []),
       ...(win7 === undefined ? [] : win7.args),
       ...(this.inspectPort === undefined ? [] : [`--inspect=127.0.0.1:${String(this.inspectPort)}`]),
       entry,
