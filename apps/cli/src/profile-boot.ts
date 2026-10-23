@@ -256,9 +256,10 @@ function traceBootStage(stage: string): void {
   traceWin7Stage(`profile-boot: ${stage}`)
 }
 
-/** A loader tree's module-import entry point. */
+/** A loader tree's module-import and entry-update entry points. */
 interface TreeImports {
   import(name: string, getOuterStack?: () => string[]): unknown
+  update?(entries: unknown, ...rest: unknown[]): unknown
 }
 
 /**
@@ -280,14 +281,16 @@ function entryTreePrototype(loader: object): TreeImports | undefined {
 }
 
 /**
- * Trace every loader entry import, and run them one at a time.
+ * Trace every loader entry import, run them one at a time, and honour an entry
+ * limit.
  *
  * The tree imports plugin modules through a dynamic `import()`, which is the
  * last phase between the mounted plugin packages and the first product module.
  * Every row is started in the same tick, so those imports run concurrently; on
  * the Windows 7 track that concurrency aborts the process natively with no
  * JavaScript stack, and serializing them keeps exactly one Node module load in
- * flight. The specifier is traced first either way.
+ * flight. `DSH_WIN7_MAX_ENTRIES` truncates the tree so a bisect can name the row
+ * whose activation kills the process.
  * @param hostCtx - Root context the Loader is mounted on.
  */
 function traceEntryImports(hostCtx: Context): void {
@@ -301,11 +304,28 @@ function traceEntryImports(hostCtx: Context): void {
     traceBootStage('prepare: entry tree import not found')
     return
   }
+  const limit = entryLimit()
+  const originalUpdate = owner.update
+  if (typeof originalUpdate === 'function') {
+    owner.update = function limitedUpdate(this: unknown, entries: unknown, ...rest: unknown[]): unknown {
+      const selected = limit === undefined || !Array.isArray(entries) ? entries : entries.slice(0, limit)
+      traceBootStage(`tree.update: ${Array.isArray(selected) ? String(selected.length) : 'n/a'} entries`)
+      const result = (originalUpdate as (...args: unknown[]) => unknown).call(this, selected, ...rest)
+      if (typeof (result as PromiseLike<unknown> | undefined)?.then === 'function') {
+        return (result as Promise<unknown>).then((value) => { traceBootStage('tree.update returned'); return value })
+      }
+      traceBootStage('tree.update returned')
+      return result
+    }
+  }
   const original = owner.import
   let queue: Promise<unknown> = Promise.resolve()
   owner.import = function tracedImport(this: unknown, name: string, getOuterStack?: () => string[]): unknown {
     traceBootStage(`tree.import: ${name}`)
-    const run = (): unknown => original.call(this, name, getOuterStack)
+    const run = (): unknown => {
+      traceBootStage(`tree.import run: ${name}`)
+      return original.call(this, name, getOuterStack)
+    }
     const result = queue.then(run, run)
     queue = result.then(() => undefined, () => undefined)
     if (typeof (result as PromiseLike<unknown> | undefined)?.then !== 'function') {
@@ -321,6 +341,17 @@ function traceEntryImports(hostCtx: Context): void {
     )
   }
   traceBootStage('prepare: entry imports traced')
+}
+
+/**
+ * Entry count the tree is truncated to, when a bisect names one.
+ * @returns the limit, or undefined to mount every entry.
+ */
+function entryLimit(): number | undefined {
+  const raw = process.env.DSH_WIN7_MAX_ENTRIES
+  if (raw === undefined || raw === '') return undefined
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined
 }
 
 export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Context; shutdown: ProcessShutdown }> {

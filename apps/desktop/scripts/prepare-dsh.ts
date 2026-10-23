@@ -25,7 +25,7 @@ import { desktopRuntimeOverrides } from './runtime-patch-policy.ts'
 import { probeEntryImports } from '../win7/probe-imports.mjs'
 import { stripJsonImportAttributesInTree } from '../win7/strip-json-import-attributes.mjs'
 import { WIN7_COMPAT_DIRECTORY, win7Profile } from '../win7/profile.mjs'
-import { writeDesktopRuntime, verifyDesktopRuntime } from '../src/runtime-tree.ts'
+import { writeDesktopRuntime, verifyDesktopRuntime, type DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 import {
   resolveDesktopAppId,
   resolveMacOSSigningEnvironment,
@@ -118,7 +118,52 @@ function runPnpm(args: readonly string[]): Promise<void> {
   })
 }
 
+
+/**
+ * Find the largest entry count whose Host boot still completes.
+ *
+ * The Host aborts natively somewhere inside the config tree, and the per-entry
+ * import probe shows every row is importable on its own. Truncating the tree to
+ * N rows and booting repeatedly turns that into a boundary: the last N that
+ * boots and the first that does not name the row whose activation kills it.
+ * @param root - Prepared dsh directory.
+ * @param node - Target Electron executable.
+ * @param runtime - External runtime directory beside the archive.
+ * @param descriptor - Verified runtime descriptor.
+ * @param total - Entry count the failed boot mounted.
+ * @returns the bisect record for the diagnostics.
+ */
+async function bisectEntryCount(
+  root: string, node: string, runtime: string, descriptor: DesktopRuntimeDescriptor, total: number,
+): Promise<{ bootableEntries: number; failingEntries: number; attempts: readonly { entries: number; ok: boolean }[] }> {
+  const attempts: { entries: number; ok: boolean }[] = []
+  const boots = async (entries: number): Promise<boolean> => {
+    process.env.DSH_WIN7_MAX_ENTRIES = String(entries)
+    try {
+      await smokePreparedRuntime(root, node, runtime, descriptor)
+      return true
+    } catch {
+      return false
+    } finally {
+      delete process.env.DSH_WIN7_MAX_ENTRIES
+    }
+  }
+  let bootable = 0
+  let failing = total
+  // A whole-tree boot just failed, so `total` is known bad and 0 is known good.
+  while (failing - bootable > 1) {
+    const mid = Math.floor((bootable + failing) / 2)
+    const ok = await boots(mid)
+    attempts.push({ entries: mid, ok })
+    process.stdout.write(`desktop runtime: win7 boot with ${String(mid)} of ${String(total)} entries ${ok ? 'completed' : 'died'}\n`)
+    if (ok) bootable = mid
+    else failing = mid
+  }
+  return { bootableEntries: bootable, failingEntries: failing, attempts }
+}
+
 async function main(): Promise<void> {
+  let descriptor: DesktopRuntimeDescriptor | undefined
   try {
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:reset', async () => {
       rmSync(DSH_OUTPUT_ROOT, { recursive: true, force: true })
@@ -186,9 +231,10 @@ async function main(): Promise<void> {
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:manifests', () => prepareRuntimeManifests(DSH_OUTPUT_ROOT))
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:primary-smoke', async () => smokePrimaryRuntime(join(RUNTIME_ROOT, 'primary-runtime')))
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:write-descriptor', async () => writeDesktopRuntime(DSH_OUTPUT_ROOT, release, packageSet.packages.map(entry => entry.name), target))
-    const descriptor = await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:verify-before-smoke', () => verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target))
+    const verifiedDescriptor = await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:verify-before-smoke', () => verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target))
+    descriptor = verifiedDescriptor
     if (!process.argv.includes('--defer-runtime-smoke')) {
-      await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:smoke', () => smokePreparedRuntime(DSH_OUTPUT_ROOT, NODE, RUNTIME_ROOT, descriptor))
+      await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:smoke', () => smokePreparedRuntime(DSH_OUTPUT_ROOT, NODE, RUNTIME_ROOT, verifiedDescriptor))
       await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:verify-after-smoke', () => verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target))
     }
   } catch (error) {
@@ -223,6 +269,14 @@ async function main(): Promise<void> {
           exposeInternals: withInternals,
         }, undefined, 2)}\n`)
         process.stdout.write(`desktop runtime: win7 entry probe -> ${result.summary}\n`)
+        // Every entry imports alone, so the abort needs the mounting tree to
+        // reproduce: bisect how many rows it may mount.
+        if (descriptor !== undefined && result.deadCount === 0) {
+          const total = readFileSync(tracePath, 'utf8').split('\n').filter(line => line.includes('tree.import: ')).length
+          const bisect = await bisectEntryCount(DSH_OUTPUT_ROOT, NODE, RUNTIME_ROOT, descriptor, total)
+          writeFileSync(join(dirname(tracePath), 'win7-bisect.json'), `${JSON.stringify(bisect, undefined, 2)}\n`)
+          process.stdout.write(`desktop runtime: win7 boot bisect -> last boot with ${String(bisect.bootableEntries)} entries, first death at ${String(bisect.failingEntries)}\n`)
+        }
       } catch (probeError) {
         process.stdout.write(`desktop runtime: win7 entry probe failed: ${String(probeError)}\n`)
       }
