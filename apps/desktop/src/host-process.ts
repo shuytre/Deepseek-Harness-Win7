@@ -230,7 +230,7 @@ export class DesktopHostProcess {
     // The Windows 7 track runs the Host on the Node 16 binary its runtime ships
     // rather than on Electron's Node build, which aborts this program natively.
     const hostNode = (win7 === undefined ? undefined : resolveWin7HostNode(primaryRuntime)) ?? this.node
-    const child = spawn(hostNode, [
+    const hostArguments = [
       // The Windows 7 track runs Node 16, where no consumer of `internals/…`
       // reaches past its version probe, and the flag changes how V8 exposes the
       // native module map — the one launch difference between the Host and a
@@ -243,15 +243,30 @@ export class DesktopHostProcess {
       this.projectDir,
       primaryRuntime,
       ...this.packageManager === undefined ? [] : [this.packageManager.pnpm, this.packageManager.nodeBin],
-    ], {
-      cwd: this.projectDir,
-      env: {
-        ...desktopNodeEnvironment(this.node, undefined, this.environment),
-        ...(win7 === undefined ? {} : win7.environment),
-        ...(win7 === undefined ? {} : win7ModuleRootEnvironment([this.runtimeDir])),
-      },
-      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-    })
+    ]
+    // A native abort leaves no JavaScript stack. When the diagnostic run names a
+    // native debugger, start the same program under it and dump the stack that
+    // raised the breakpoint.
+    const debuggerPath = win7 === undefined ? undefined : process.env.DSH_WIN7_CDB
+    const child = debuggerPath === undefined
+      ? spawn(hostNode, hostArguments, {
+        cwd: this.projectDir,
+        env: {
+          ...desktopNodeEnvironment(this.node, undefined, this.environment),
+          ...(win7 === undefined ? {} : win7.environment),
+          ...(win7 === undefined ? {} : win7ModuleRootEnvironment([this.runtimeDir])),
+        },
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      })
+      : spawn(debuggerPath, ['-o', '-g', '-G', '-c', 'kb; ~*kb; q', hostNode, ...hostArguments], {
+        cwd: this.projectDir,
+        env: {
+          ...desktopNodeEnvironment(this.node, undefined, this.environment),
+          ...(win7 === undefined ? {} : win7.environment),
+          ...(win7 === undefined ? {} : win7ModuleRootEnvironment([this.runtimeDir])),
+        },
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      })
     this.child = child
     child.stderr?.setEncoding('utf8')
     child.stderr?.on('data', (chunk: string) => { this.stderr = (this.stderr + chunk).slice(-MAX_HOST_DIAGNOSTIC_CHARS) })

@@ -105,6 +105,20 @@ jobs:
         # carry, so the lockfile is refreshed rather than frozen here.
         run: pnpm install --no-frozen-lockfile
 
+      # The Host aborts natively with no JavaScript stack. cdb turns that
+      # breakpoint into a stack that names the module and offset; the build only
+      # uses it when the environment names the debugger.
+      - name: Install the native debugger
+        shell: pwsh
+        run: |
+          choco install -y --no-progress windbg 2>$null
+          $root = 'C:\Program Files (x86)\Windows Kits\10\Debuggers'
+          $cdb = Get-ChildItem $root -Recurse -Filter cdb.exe -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if ($null -eq $cdb) { Write-Host 'cdb.exe not found; the Host runs without the debugger'; exit 0 }
+          Write-Host "cdb: $($cdb.FullName)"
+          "DSH_WIN7_CDB=$($cdb.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Build the Windows 7 installer
         shell: pwsh
         run: |
