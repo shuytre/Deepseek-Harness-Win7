@@ -22,6 +22,7 @@ import { smokePreparedRuntime } from './smoke-prepared-runtime.ts'
 import { prepareRuntimeManifests } from './prepare-runtime-manifests.ts'
 import { prepareRuntimePatches, verifyRuntimePatches } from './prepare-runtime-patches.ts'
 import { desktopRuntimeOverrides } from './runtime-patch-policy.ts'
+import { probeHostBoot } from '../win7/probe-host-boot.mjs'
 import { probeEntryImports } from '../win7/probe-imports.mjs'
 import { stripJsonImportAttributesInTree } from '../win7/strip-json-import-attributes.mjs'
 import { WIN7_COMPAT_DIRECTORY, win7Profile } from '../win7/profile.mjs'
@@ -264,9 +265,20 @@ async function main(): Promise<void> {
           limit: 3,
           log: (line) => { process.stdout.write(`${line}\n`) },
         })
+        // The shell wraps the Host with an IPC channel and a synthetic profile;
+        // booting the same entry over plain pipes separates the boot from the
+        // wrapper.
+        const hostBoot = await probeHostBoot({
+          node: NODE,
+          dshRoot: DSH_OUTPUT_ROOT,
+          compat: join(RUNTIME_ROOT, WIN7_COMPAT_DIRECTORY),
+          primaryRuntime: join(RUNTIME_ROOT, 'primary-runtime'),
+          log: (line) => { process.stdout.write(`${line}\n`) },
+        })
         writeFileSync(join(dirname(tracePath), 'win7-probe.json'), `${JSON.stringify({
           ...result,
           exposeInternals: withInternals,
+          hostBoot,
         }, undefined, 2)}\n`)
         process.stdout.write(`desktop runtime: win7 entry probe -> ${result.summary}\n`)
         // Every entry imports alone, so the abort needs the mounting tree to

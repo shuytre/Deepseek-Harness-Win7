@@ -48,7 +48,7 @@ const PACKAGING_ENVIRONMENT = {
   // runtime tree the packaging steps rebuild.
   DSH_WIN7_TRACE_FILE: join(RUN_DIRECTORY, 'win7-trace.log'),
   // Experiment: 'none' keeps only the polyfills a module needs to load.
-  DSH_WIN7_POLYFILLS: process.env.DSH_WIN7_POLYFILLS ?? 'none',
+  DSH_WIN7_POLYFILLS: process.env.DSH_WIN7_POLYFILLS ?? 'all',
   // Experiment: the Host's experimental ESM loader is the only experimental
   // subsystem in its launch, and the tree abort happens exactly when its first
   // dynamic imports start. '0' runs the Host without it.
