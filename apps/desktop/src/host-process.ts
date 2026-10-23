@@ -1,7 +1,8 @@
 /** Electron Node-mode child lifecycle for the shared Web application. */
 
 import { spawn, type ChildProcess } from 'node:child_process'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { desktopNodeEnvironment } from './node-environment.ts'
@@ -248,7 +249,14 @@ export class DesktopHostProcess {
     // native debugger, start the same program under it and dump the stack that
     // raised the breakpoint.
     const debuggerPath = win7 === undefined ? undefined : process.env.DSH_WIN7_CDB
-    const child = debuggerPath === undefined
+    // `-c` runs at the initial break, which is before the program starts. Break
+    // on the fault itself instead, and run the stack dump there.
+    const debuggerCommands = debuggerPath === undefined ? undefined : join(tmpdir(), 'dsh-win7-cdb.txt')
+    if (debuggerCommands !== undefined) {
+      // Written before the spawn: cdb reads it as soon as it starts.
+      writeFileSync(debuggerCommands, 'sxe 80000003 "kb; ~*kb; q"\ng\n')
+    }
+    const child = debuggerPath === undefined || debuggerCommands === undefined
       ? spawn(hostNode, hostArguments, {
         cwd: this.projectDir,
         env: {
@@ -258,7 +266,7 @@ export class DesktopHostProcess {
         },
         stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       })
-      : spawn(debuggerPath, ['-g', '-G', '-c', 'kb; q', hostNode, ...hostArguments], {
+      : spawn(debuggerPath, ['-g', '-G', '-cf', debuggerCommands, hostNode, ...hostArguments], {
         cwd: this.projectDir,
         env: {
           ...desktopNodeEnvironment(this.node, undefined, this.environment),
