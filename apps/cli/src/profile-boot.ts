@@ -263,17 +263,18 @@ interface TreeImports {
 }
 
 /**
- * Walk to the prototype that owns `import`.
+ * Walk to the prototype of `target` that owns `key`.
  *
- * The Loader and the include's own tree share `EntryTree.prototype`, so patching
- * it once covers every entry import in the tree.
- * @param loader - The mounted Loader service.
+ * The Loader and the include's own tree share prototypes, so patching one
+ * owning prototype covers every tree in the process.
+ * @param target - Instance whose prototype chain to search.
+ * @param key - Method name to find.
  * @returns The owning prototype, or undefined when the shape is unexpected.
  */
-function entryTreePrototype(loader: object): TreeImports | undefined {
-  let proto: object | null = Object.getPrototypeOf(loader) as object | null
+function owningPrototype(target: object, key: 'import' | 'update'): TreeImports | undefined {
+  let proto: object | null = Object.getPrototypeOf(target) as object | null
   while (proto !== null && proto !== Object.prototype) {
-    const descriptor = Object.getOwnPropertyDescriptor(proto, 'import')
+    const descriptor = Object.getOwnPropertyDescriptor(proto, key)
     if (descriptor !== undefined && typeof descriptor.value === 'function') return proto as TreeImports
     proto = Object.getPrototypeOf(proto) as object | null
   }
@@ -299,15 +300,19 @@ function traceEntryImports(hostCtx: Context): void {
     traceBootStage('prepare: no loader to trace')
     return
   }
-  const owner = entryTreePrototype(loader)
+  const owner = owningPrototype(loader, 'import')
   if (owner === undefined) {
     traceBootStage('prepare: entry tree import not found')
     return
   }
   const limit = entryLimit()
-  const originalUpdate = owner.update
+  // Entries are mounted by the root group's own `update`, which shadows the
+  // tree prototype's.
+  const rootGroup = (loader as unknown as { root?: object }).root
+  const updateOwner = (rootGroup === undefined ? undefined : owningPrototype(rootGroup, 'update')) ?? owner
+  const originalUpdate = updateOwner.update
   if (typeof originalUpdate === 'function') {
-    owner.update = function limitedUpdate(this: unknown, entries: unknown, ...rest: unknown[]): unknown {
+    updateOwner.update = function limitedUpdate(this: unknown, entries: unknown, ...rest: unknown[]): unknown {
       const selected = limit === undefined || !Array.isArray(entries) ? entries : entries.slice(0, limit)
       traceBootStage(`tree.update: ${Array.isArray(selected) ? String(selected.length) : 'n/a'} entries`)
       const result = (originalUpdate as (...args: unknown[]) => unknown).call(this, selected, ...rest)

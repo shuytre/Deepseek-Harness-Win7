@@ -271,7 +271,7 @@ async function main(): Promise<void> {
         process.stdout.write(`desktop runtime: win7 entry probe -> ${result.summary}\n`)
         // Every entry imports alone, so the abort needs the mounting tree to
         // reproduce: bisect how many rows it may mount.
-        if (descriptor !== undefined && result.deadCount === 0) {
+        if (descriptor !== undefined && process.env.DSH_WIN7_BISECT === '1') {
           const total = readFileSync(tracePath, 'utf8').split('\n').filter(line => line.includes('tree.import: ')).length
           const bisect = await bisectEntryCount(DSH_OUTPUT_ROOT, NODE, RUNTIME_ROOT, descriptor, total)
           writeFileSync(join(dirname(tracePath), 'win7-bisect.json'), `${JSON.stringify(bisect, undefined, 2)}\n`)

@@ -258,7 +258,7 @@ export class DesktopHostProcess {
         },
         stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       })
-      : spawn(debuggerPath, ['-o', '-g', '-G', '-c', 'kb; ~*kb; q', hostNode, ...hostArguments], {
+      : spawn(debuggerPath, ['-g', '-G', '-c', 'kb; q', hostNode, ...hostArguments], {
         cwd: this.projectDir,
         env: {
           ...desktopNodeEnvironment(this.node, undefined, this.environment),
