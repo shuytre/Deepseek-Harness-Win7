@@ -21,14 +21,18 @@ const SOURCE_EXTENSIONS = ['.js', '.mjs', '.cjs']
 
 /**
  * Drop the attribute clause from a source text.
+ *
+ * Node 16 parses the earlier `assert { type: 'json' }` form, which a plain
+ * deletion would also lose: without any clause Node rejects the JSON module with
+ * ERR_IMPORT_ASSERTION_TYPE_MISSING. So the clause is rewritten, not removed.
  * @param source - Module source.
- * @returns Source without `with { type: 'json' }`, and how many clauses were removed.
+ * @returns Source with the Node 16 assertion form, and how many clauses changed.
  */
 export function stripJsonImportAttributes(source) {
   let removed = 0
-  const rewritten = source.replace(/\s+with\s*\{\s*type\s*:\s*(['"])json\1\s*\}/gu, () => {
+  const rewritten = source.replace(/\s+with\s*(\{\s*type\s*:\s*(['"])json\2\s*\})/gu, (_match, clause) => {
     removed += 1
-    return ''
+    return ` assert ${clause}`
   })
   return { source: rewritten, removed }
 }

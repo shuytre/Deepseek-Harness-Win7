@@ -31,6 +31,7 @@ import {
   type SessionPersistenceSnapshot, type SessionPersistenceStatOptions,
   type SessionPersistenceRevision as PersistenceRevision,
 } from '@deepseek-ai/dsh-session-persistence'
+import { hasZstdZlib } from './zlib-zstd.ts'
 import { JsonlBackendTracker, JsonlSessionHandle, type StorageHandleState } from './storage.ts'
 import { SessionWriteLease } from './lease.ts'
 import { SESSION_FORMAT_VERSION, SessionId as makeSessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
@@ -65,7 +66,14 @@ export type { JsonlCompression } from './format.ts'
  */
 const COLD_LOG_MEMO_MAX_ENTRIES = 2
 
-const DEFAULT_COMPRESSION: JsonlCompression = 'zstd'
+/**
+ * Compression for sessions written without an explicit choice.
+ *
+ * Zstandard arrives in Node 22.15; on a runtime without it the backend writes
+ * plain frames rather than failing every session write, and a session already
+ * written as zstd reports the missing zlib API when it is opened.
+ */
+const DEFAULT_COMPRESSION: JsonlCompression = hasZstdZlib() ? 'zstd' : 'none'
 /**
  * Internal scheduling constant, not deployment configuration: balance
  * frame-boundary event-loop yields against `setImmediate` overhead. One frame

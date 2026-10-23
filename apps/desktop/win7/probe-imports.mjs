@@ -103,10 +103,13 @@ function probeOne(options) {
         return
       }
       const errorLine = stderr.split('\n').find(line => line.startsWith('PROBE_ERROR')) ?? stderr.trim().split('\n').pop() ?? ''
+      // The smoke plugin is a synthetic row the packaging smoke mounts from a
+      // fixture, so "not installed" is its documented state, not a verdict.
+      const absent = specifier.startsWith('desktop-runtime-smoke') && errorLine.includes('ERR_MODULE_NOT_FOUND')
       resolvePromise({
         specifier,
         code,
-        verdict: timedOut ? 'timeout' : code === 0 ? 'import-error' : 'process-died',
+        verdict: absent ? 'absent' : timedOut ? 'timeout' : code === 0 ? 'import-error' : 'process-died',
         detail: timedOut ? `still running after ${String(PROBE_TIMEOUT_MS)} ms` : errorLine.slice(0, 600),
       })
     })
@@ -126,7 +129,7 @@ export async function probeEntryImports({ electron, dshRoot, compat, tracePath, 
     results.push(result)
     log(`[win7] probe ${String(index + 1)}/${String(specifiers.length)} ${result.verdict} ${specifier}${result.detail === undefined ? '' : ` :: ${result.detail}`}`)
   }
-  const died = results.filter(result => result.verdict === 'process-died')
+  const died = results.filter(result => result.verdict === 'process-died' || result.verdict === 'import-error')
   const summary = died.length === 0
     ? `${String(results.length)} entries imported, none killed its process`
     : `${String(died.length)} of ${String(results.length)} entries killed their process: ${died.map(result => result.specifier).join(', ')}`

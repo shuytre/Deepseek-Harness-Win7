@@ -4,8 +4,11 @@
  */
 
 import { constants as bufferConstants } from 'node:buffer'
-import { createZstdDecompress } from 'node:zlib'
+import { zstdZlib } from './zlib-zstd.ts'
 import type { ZstdFrameDecoder, ZstdFrameRange } from './zstd.ts'
+
+/** A streaming decompressor handle from the runtime's zlib. */
+type ZstdDecompressStream = ReturnType<typeof import('node:zlib').createZstdDecompress>
 
 const DECODE_CHUNK_SIZE = 1024 * 1024
 
@@ -30,11 +33,11 @@ interface NodeZstdPrivateState {
   _defaultFlushFlag: number
 }
 
-type NodeZstdPrivateStream = ReturnType<typeof createZstdDecompress> & NodeZstdPrivateState
+type NodeZstdPrivateStream = ZstdDecompressStream & NodeZstdPrivateState
 
 /** Return the stream with its observed private Node contract, or reject that optimization. */
 function privateZstdStream(
-  stream: ReturnType<typeof createZstdDecompress>,
+  stream: ZstdDecompressStream,
 ): { stream: NodeZstdPrivateStream; errorKey: symbol } | undefined {
   const candidate = stream as unknown as Partial<NodeZstdPrivateState>
   const handle = candidate._handle
@@ -81,7 +84,7 @@ export class NodePrivateZstdFrameDecoder implements ZstdFrameDecoder {
    * @returns a shared decoder, or `undefined` when callers must use the public fallback.
    */
   static create(): NodePrivateZstdFrameDecoder | undefined {
-    const stream = createZstdDecompress({ chunkSize: DECODE_CHUNK_SIZE })
+    const stream = zstdZlib().createZstdDecompress({ chunkSize: DECODE_CHUNK_SIZE })
     const privateAccess = privateZstdStream(stream)
     /* v8 ignore next -- reached only when a supported Node release changes its private stream shape. */
     if (privateAccess !== undefined) {

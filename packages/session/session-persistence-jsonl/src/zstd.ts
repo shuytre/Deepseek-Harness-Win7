@@ -5,21 +5,39 @@
  * @module dsh-session-persistence-jsonl/zstd
  */
 
-import {
-  constants, zstdCompress, zstdDecompress, type ZstdOptions,
-} from 'node:zlib'
-import { promisify } from 'node:util'
+import type { ZstdOptions } from 'node:zlib'
+import { zstdZlib } from './zlib-zstd.ts'
 import { NodePrivateZstdFrameDecoder } from './zstd-private-decoder.ts'
 import { PublicZstdFrameDecoder } from './zstd-public-decoder.ts'
 
 const ZSTD_MAGIC = 0xFD2FB528
-const zstdCompressAsync = promisify(zstdCompress)
-const zstdDecompressAsync = promisify(zstdDecompress)
-const CHECKSUM_OPTIONS: ZstdOptions = {
-  params: { [constants.ZSTD_c_checksumFlag]: 1 },
+
+/** Options that make a frame independently decodable and checksummed. */
+function checksumOptions(): ZstdOptions {
+  return { params: { [zstdZlib().constants.ZSTD_c_checksumFlag]: 1 } }
 }
-const INCOMPLETE_FRAME_OPTIONS: ZstdOptions = {
-  finishFlush: constants.ZSTD_e_flush,
+
+/** Options that stop after the available input instead of requiring a final frame. */
+function incompleteFrameOptions(): ZstdOptions {
+  return { finishFlush: zstdZlib().constants.ZSTD_e_flush }
+}
+
+function zstdCompressAsync(input: Buffer | string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    zstdZlib().zstdCompress(input, checksumOptions(), (error, result) => {
+      if (error) reject(error)
+      else resolve(result)
+    })
+  })
+}
+
+function zstdDecompressAsync(input: Buffer, options?: ZstdOptions): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    zstdZlib().zstdDecompress(input, options ?? {}, (error, result) => {
+      if (error) reject(error)
+      else resolve(result)
+    })
+  })
 }
 
 /** Byte range occupied by one structurally complete Zstandard frame. */
@@ -109,7 +127,7 @@ export function scanZstdFrames(buffer: Buffer, maxFrames = Number.POSITIVE_INFIN
  * @returns the complete encoded frame.
  */
 export async function compressZstdFrame(input: Buffer | string): Promise<Buffer> {
-  return zstdCompressAsync(input, CHECKSUM_OPTIONS)
+  return zstdCompressAsync(input)
 }
 
 /**
@@ -152,5 +170,5 @@ export function createZstdFrameDecoder(): ZstdFrameDecoder {
  * @returns plaintext produced from the available input.
  */
 export async function decompressZstdPrefix(input: Buffer): Promise<Buffer> {
-  return zstdDecompressAsync(input, INCOMPLETE_FRAME_OPTIONS)
+  return zstdDecompressAsync(input, incompleteFrameOptions())
 }
