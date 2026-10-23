@@ -1,7 +1,26 @@
 /** Select Official bundle packages from the running installation without importing provider code. */
-import { existsSync, globSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { bundlePatchPaths, type ProfileManifest } from '@deepseek-ai/dsh-app-boot'
+
+const requireFromModule = createRequire(import.meta.url)
+
+/**
+ * Read `fs.globSync` from the module object rather than through an ESM named
+ * import: the function arrived in Node 22, and a named import of a builtin that
+ * lacks it fails at link time, before any fallback can run. The Windows 7
+ * compatibility runtime installs the same function on the object.
+ * @param pattern - Glob pattern relative to `cwd`.
+ * @param options - `cwd` to search from.
+ * @returns Matching paths.
+ */
+function globSync(pattern: string, options: { cwd: string }): string[] {
+  const module = requireFromModule('node:fs') as typeof import('node:fs') & { globSync?: typeof import('node:fs').globSync }
+  /* v8 ignore next -- every supported runtime and the Windows 7 runtime provide globSync */
+  if (typeof module.globSync !== 'function') throw new Error('node:fs.globSync is unavailable on this runtime')
+  return module.globSync(pattern, options) as string[]
+}
 
 interface WorkspaceManifest extends ProfileManifest {
   main?: string

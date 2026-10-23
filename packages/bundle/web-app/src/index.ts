@@ -16,7 +16,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { isIP } from 'node:net'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { addHarnessSourceSection, auditStartupEntries } from '@deepseek-ai/dsh-app-boot'
@@ -72,7 +72,21 @@ export const Config: z<Config> = z.object({
 /** Environment variable naming the advertised URL of this Web GUI. */
 const DSH_WEB_URL = 'DSH_WEB_URL' as const
 
-const BROWSER_OPENER_MODULE = import.meta.resolve('open')
+/**
+ * Resolve the browser opener's module URL on every supported runtime.
+ *
+ * `import.meta.resolve` became a function in Node 20.6, and the Windows 7 track
+ * runs Node 16, where the property does not exist; the resolver falls back to the
+ * CommonJS resolution of the same specifier.
+ * @returns File URL of the `open` module entry.
+ */
+function resolveBrowserOpenerModule(): string {
+  const resolve = (import.meta as { resolve?: (specifier: string) => string }).resolve
+  if (typeof resolve === 'function') return resolve.call(import.meta, 'open')
+  return pathToFileURL(createRequire(import.meta.url).resolve('open')).href
+}
+
+const BROWSER_OPENER_MODULE = resolveBrowserOpenerModule()
 
 const BROWSER_OPENER_PROGRAM = `
 try {

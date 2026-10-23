@@ -278,8 +278,75 @@ function resolveFromRoots(name) {
   }
 }
 
-/** Install a global `fetch` stack from undici 5 when the runtime lacks one (Node 16). */
-function installFetchStack() {
+/**
+ * Install the Web Streams globals the bundled HTTP clients construct at load.
+ *
+ * `eventsource-parser` reaches for `TransformStream` while its module evaluates,
+ * and Node 16 ships the classes only under `node:stream/web`.
+ */
+function installWebStreams() {
+  let streams
+  try {
+    streams = require('node:stream/web')
+  } catch {
+    return
+  }
+  for (const name of ['TransformStream', 'ReadableStream', 'WritableStream']) {
+    if (typeof globalThis[name] === 'function' || typeof streams[name] !== 'function') continue
+    Object.defineProperty(globalThis, name, { configurable: true, writable: true, value: streams[name] })
+  }
+}
+
+/** Install `buffer.isUtf8` (Node 18.14) over a fatal UTF-8 decode. */
+function installBufferHelpers() {
+  const buffer = require('node:buffer')
+  if (typeof buffer.isUtf8 === 'function') return
+  Object.defineProperty(buffer, 'isUtf8', {
+    configurable: true,
+    writable: true,
+    value: function isUtf8(input) {
+      try {
+        new TextDecoder('utf-8', { fatal: true }).decode(input)
+        return true
+      } catch {
+        return false
+      }
+    },
+  })
+}
+
+/** Install `events.addAbortListener` (Node 20.5) with the disposable it returns. */
+function installAddAbortListener() {
+  const events = require('node:events')
+  if (typeof events.addAbortListener === 'function') return
+  Object.defineProperty(events, 'addAbortListener', {
+    configurable: true,
+    writable: true,
+    value: function addAbortListener(signal, listener) {
+      signal.addEventListener('abort', listener, { once: true })
+      const release = () => { signal.removeEventListener('abort', listener) }
+      const disposable = { dispose: release }
+      if (typeof Symbol.dispose === 'symbol') disposable[Symbol.dispose] = release
+      return disposable
+    },
+  })
+}
+
+/** Install `util.getSystemErrorMessage` (Node 22.13) from the errno name Node 16 does provide. */
+function installSystemErrorMessage() {
+  const util = require('node:util')
+  if (typeof util.getSystemErrorMessage === 'function') return
+  Object.defineProperty(util, 'getSystemErrorMessage', {
+    configurable: true,
+    writable: true,
+    value: function getSystemErrorMessage(error) {
+      const name = util.getSystemErrorName(error)
+      return name.replace(/^E/u, '').replace(/([a-z])([A-Z])/gu, '$1 $2').toLowerCase()
+    },
+  })
+}
+
+/** Install a global `fetch` stack from undici 5 when the runtime lacks one (Node 16). */function installFetchStack() {
   if (typeof globalThis.fetch === 'function' && typeof globalThis.Response === 'function') return false
   let undici
   try {
@@ -395,6 +462,10 @@ function installWin7Polyfills() {
   installAvailableParallelism()
   installArrayChangeMethods()
   installGlobSync()
+  installWebStreams()
+  installBufferHelpers()
+  installAddAbortListener()
+  installSystemErrorMessage()
   const fetchInstalled = installFetchStack()
   const webSocketInstalled = installWebSocket()
   return {

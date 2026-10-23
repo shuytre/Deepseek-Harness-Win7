@@ -39,6 +39,10 @@ export function resolveChildWin7Compat(primaryRuntime: string): Win7ChildCompat 
       ...(process.env.DSH_WIN7_ESM_LOADER === '0'
         ? []
         : ['--experimental-loader', pathToFileURL(join(directory, 'loader.mjs')).href]),
+      // Node 16 gates JSON module imports behind this flag; the packaged
+      // providers import one data file per model, and the packaging step strips
+      // the `with { type: 'json' }` clause Node 16 cannot parse.
+      '--experimental-json-modules',
       // A native abort on Node 16 leaves no JavaScript stack in stderr; the
       // report carries the JavaScript/native stack that names the crash site.
       '--report-on-fatalerror',

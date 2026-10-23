@@ -1,5 +1,5 @@
 /** Confined Node programs with host-owned bindings, output limits, and managed process cleanup. */
-import { stripTypeScriptTypes } from 'node:module'
+import { createRequire } from 'node:module'
 import { isAbsolute } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -47,6 +47,27 @@ type ResolvedConfig = Required<Config>
 interface LiveRun { controller: AbortController; finished: Promise<void> }
 const STRIP_PREFIX = 'async function __dsh_program__() {\n'
 const STRIP_SUFFIX = '\n}'
+
+/**
+ * Erase TypeScript syntax from a program before it runs.
+ *
+ * `module.stripTypeScriptTypes` arrived in Node 22.13, and a named import of a
+ * builtin that lacks it fails at link time, before any fallback can run. PTC is
+ * unavailable on a runtime that has no eraser, and the error says so instead of
+ * failing to load the plugin at all.
+ * @param source - Program source, wrapped in the PTC prelude.
+ * @returns Source with TypeScript-only syntax removed.
+ */
+function stripTypes(source: string): string {
+  const module = createRequire(import.meta.url)('node:module') as typeof import('node:module') & {
+    stripTypeScriptTypes?: (source: string) => string
+  }
+  /* v8 ignore next -- the Windows 7 track reports this at run time, not at load time */
+  if (typeof module.stripTypeScriptTypes !== 'function') {
+    throw new Error('PTC execution requires node:module.stripTypeScriptTypes (Node 22.13 or later)')
+  }
+  return module.stripTypeScriptTypes(source)
+}
 
 function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error) }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value) }
@@ -206,7 +227,7 @@ export class NodePtcRuntime extends PtcRuntime {
       // Abort callbacks can settle execution before or during an awaited operation.
       // oxlint-disable-next-line typescript/no-unnecessary-condition
       if (settled) return await result.promise
-      const stripped = stripTypeScriptTypes(STRIP_PREFIX + spec.program + STRIP_SUFFIX)
+      const stripped = stripTypes(STRIP_PREFIX + spec.program + STRIP_SUFFIX)
       parsing = false
       const data: ProgramBootData = {
         code: stripped.slice(STRIP_PREFIX.length, stripped.length - STRIP_SUFFIX.length),

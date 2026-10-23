@@ -1,6 +1,6 @@
 /** Ordinary event SDK batching over a cancellable HTTP transport. */
 import type { Attributes } from '@opentelemetry/api'
-import { addAbortListener } from 'node:events'
+import { addAbortListener } from './abort-listener.ts'
 import { SeverityNumber, type Logger } from '@opentelemetry/api-logs'
 import { ExportResultCode } from '@opentelemetry/core'
 import { resourceFromAttributes } from '@opentelemetry/resources'
@@ -88,7 +88,7 @@ export class EventLogReporter {
     finally {
       // SDK batch shutdown can reject before it releases the exporter.
       try { await this.exporter.shutdown() }
-      finally { listener?.[Symbol.dispose]() }
+      finally { listener?.dispose() }
     }
   }
 }

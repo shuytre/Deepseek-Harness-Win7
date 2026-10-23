@@ -24,7 +24,8 @@ import { performance } from 'node:perf_hooks'
 import { pipeline, Readable } from 'node:stream'
 import { scheduler } from 'node:timers/promises'
 import { isDeepStrictEqual } from 'node:util'
-import { constants, createZstdCompress } from 'node:zlib'
+import { constants } from 'node:zlib'
+import { createRequire } from 'node:module'
 import { Session } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { BlockAssembler, expandAssistantStream } from '@deepseek-ai/dsh-llm'
@@ -52,6 +53,26 @@ const MIGRATION_WRITE_CHUNK_BYTES = 4 * 1024 * 1024
 const ZSTD_CHECKSUM_OPTIONS = {
   chunkSize: MIGRATION_WORK_CHUNK_BYTES,
   params: { [constants.ZSTD_c_checksumFlag]: 1 },
+}
+
+/**
+ * Create the Zstandard compressor for a session migration.
+ *
+ * `zlib.createZstdCompress` arrived in Node 22.15, and a named import of a
+ * builtin that lacks it fails at link time, before any fallback can run — so the
+ * compressor is resolved at first use and its absence is reported as a migration
+ * failure rather than a module that will not load.
+ * @returns Compressor transform for the migration pipeline.
+ */
+function zstdCompressor(): import('node:stream').Transform {
+  const zlib = createRequire(import.meta.url)('node:zlib') as typeof import('node:zlib') & {
+    createZstdCompress?: (options: typeof ZSTD_CHECKSUM_OPTIONS) => import('node:stream').Transform
+  }
+  /* v8 ignore next -- the Windows 7 track reports this as a migration failure, not at load time */
+  if (typeof zlib.createZstdCompress !== 'function') {
+    throw new Error('session migration to zstd requires node:zlib.createZstdCompress (Node 22.15 or later)')
+  }
+  return zlib.createZstdCompress(ZSTD_CHECKSUM_OPTIONS)
 }
 
 /** Pure adapter between backend-owned JSONL framing and the format catalog. */
@@ -754,7 +775,7 @@ async function writeSyncedTemp(
         await new Promise<void>((resolve, reject) => {
           pipeline(
             Readable.from(rows, { objectMode: false, highWaterMark: MIGRATION_WORK_CHUNK_BYTES }),
-            createZstdCompress(ZSTD_CHECKSUM_OPTIONS),
+            zstdCompressor(),
             async (source) => { await writeMigrationChunks(source as AsyncIterable<Buffer>, write) },
             (error: Error | null | undefined) => {
               if (error instanceof Error) reject(error)

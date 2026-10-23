@@ -67,6 +67,7 @@ function probeOne(options) {
   return new Promise((resolvePromise) => {
     const child = spawn(electron, [
       '--require', join(compat, 'polyfills.cjs'),
+      '--experimental-json-modules',
       probePath,
     ], {
       cwd: loaderDirectory,

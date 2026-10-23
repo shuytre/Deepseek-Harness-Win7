@@ -1,6 +1,7 @@
 /** Lazy libc execve and descriptor bindings used by the one-shot Linux bootstrap. */
 
-import { getSystemErrorMessage, getSystemErrorName } from 'node:util'
+import { getSystemErrorName } from 'node:util'
+import { createRequire } from 'node:module'
 import { SUBPROCESS_CONTROL_FD } from '@deepseek-ai/dsh-subprocess/control'
 import { createLazyRequire } from '@deepseek-ai/dsh-lazy-require'
 
@@ -29,10 +30,27 @@ const FD_CLOEXEC = 1
 
 let cachedExecve: LinuxExecve | undefined
 
+/**
+ * Render an errno as the sentence Node's own `uv` binding prints.
+ *
+ * `util.getSystemErrorMessage` arrived in Node 22.13, and a named import of a
+ * builtin that lacks it fails at link time, so it is read from the module object
+ * — the Windows 7 compatibility runtime installs the same function there.
+ * @param uvError - Negative libuv error number.
+ * @returns Human-readable description.
+ */
+function systemErrorMessage(uvError: number): string {
+  const util = createRequire(import.meta.url)('node:util') as typeof import('node:util') & {
+    getSystemErrorMessage?: (error: number) => string
+  }
+  if (typeof util.getSystemErrorMessage === 'function') return util.getSystemErrorMessage(uvError)
+  return util.getSystemErrorName(uvError)
+}
+
 function systemError(errno: number, syscall: string, path?: string): Error {
   const uvError = -errno
   const code = getSystemErrorName(uvError)
-  const detail = getSystemErrorMessage(uvError)
+  const detail = systemErrorMessage(uvError)
   const subject = path === undefined ? syscall : `${syscall} '${path}'`
   const error = Object.assign(new Error(`${code}: ${detail}, ${subject}`), {
     code,

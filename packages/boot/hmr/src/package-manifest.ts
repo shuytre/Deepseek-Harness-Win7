@@ -1,9 +1,26 @@
 /** Expire Node's cached package configuration for package directories whose manifest changed. */
-import { isUtf8 } from 'node:buffer'
 import { readFileSync, realpathSync } from 'node:fs'
 import { createRequire, isBuiltin } from 'node:module'
 import { basename, dirname, join, sep, toNamespacedPath } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+
+/**
+ * Test a buffer for UTF-8 validity.
+ *
+ * `buffer.isUtf8` arrived in Node 18.14, and a named import of a builtin that
+ * lacks it fails at link time, before any fallback can run. The Windows 7
+ * compatibility runtime installs the same function on the module object.
+ * @param bytes - Buffer to test.
+ * @returns whether the bytes are valid UTF-8.
+ */
+function isUtf8(bytes: Uint8Array): boolean {
+  const module = createRequire(import.meta.url)('node:buffer') as typeof import('node:buffer') & {
+    isUtf8?: (input: Uint8Array) => boolean
+  }
+  /* v8 ignore next -- every supported runtime and the Windows 7 runtime provide isUtf8 */
+  if (typeof module.isUtf8 !== 'function') throw new Error('node:buffer.isUtf8 is unavailable on this runtime')
+  return module.isUtf8(bytes)
+}
 
 /** Package fields Node's resolver consumes; exports and imports hold JSON values. */
 interface PackageConfig {
