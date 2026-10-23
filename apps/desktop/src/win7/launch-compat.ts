@@ -62,6 +62,26 @@ export function resolveChildWin7Compat(primaryRuntime: string): Win7ChildCompat 
 }
 
 /**
+ * Resolve the Node 16 binary the Windows 7 track ships beside `primary-runtime`.
+ *
+ * The Host is a plain Node program, and the runtime already carries a Node
+ * executable for the package manager and the CLI. Running the Host on it keeps
+ * the embedder out of the process: Electron's Node build aborts the Host
+ * natively a few milliseconds into the plugin tree, while the same tree imports
+ * cleanly under either binary one module at a time.
+ * @param primaryRuntime - Absolute primary-runtime directory.
+ * @returns Absolute path to the runtime's Node executable, or undefined when absent.
+ */
+export function resolveWin7HostNode(primaryRuntime: string): string | undefined {
+  const bin = join(dirname(primaryRuntime), 'bin')
+  for (const name of process.platform === 'win32' ? ['node.exe'] : ['node']) {
+    const candidate = join(bin, name)
+    if (existsSync(candidate)) return candidate
+  }
+  return undefined
+}
+
+/**
  * Declare the module roots a shim resolves its drivers from.
  * @param roots - Directories whose `node_modules` may hold a driver.
  * @returns Environment entries for the child process.

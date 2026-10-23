@@ -5,7 +5,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { desktopNodeEnvironment } from './node-environment.ts'
-import { resolveChildWin7Compat, win7ModuleRootEnvironment } from './win7/launch-compat.ts'
+import { resolveChildWin7Compat, resolveWin7HostNode, win7ModuleRootEnvironment } from './win7/launch-compat.ts'
 
 /**
  * Summarize the newest Node fatal-error report in the compatibility runtime.
@@ -227,7 +227,10 @@ export class DesktopHostProcess {
     // redirects node:sqlite / node:sea. The Win10 track resolves undefined and
     // spawns exactly the argument list it always did.
     const win7 = resolveChildWin7Compat(primaryRuntime)
-    const child = spawn(this.node, [
+    // The Windows 7 track runs the Host on the Node 16 binary its runtime ships
+    // rather than on Electron's Node build, which aborts this program natively.
+    const hostNode = (win7 === undefined ? undefined : resolveWin7HostNode(primaryRuntime)) ?? this.node
+    const child = spawn(hostNode, [
       // The Windows 7 track runs Node 16, where no consumer of `internals/…`
       // reaches past its version probe, and the flag changes how V8 exposes the
       // native module map — the one launch difference between the Host and a
