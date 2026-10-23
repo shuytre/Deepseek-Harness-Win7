@@ -105,6 +105,21 @@ jobs:
         # carry, so the lockfile is refreshed rather than frozen here.
         run: pnpm install --no-frozen-lockfile
 
+      # The Host aborts natively with no JavaScript stack. The image usually
+      # ships the SDK debuggers; when cdb is present the build spawns the Host
+      # under it to capture the failing stack, and otherwise runs unchanged.
+      - name: Locate the native debugger
+        shell: pwsh
+        run: |
+          $candidates = @(
+            'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe',
+            'C:\Program Files\Windows Kits\10\Debuggers\x64\cdb.exe'
+          )
+          $cdb = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if ($null -eq $cdb) { Write-Host 'cdb.exe not present; the Host runs without a debugger'; exit 0 }
+          Write-Host "cdb: $cdb"
+          "DSH_WIN7_CDB=$cdb" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Build the Windows 7 installer
         shell: pwsh
         run: |
