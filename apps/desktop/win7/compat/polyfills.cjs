@@ -452,6 +452,12 @@ function installExitTrace() {
 /** Install every guard that applies to the running runtime. */
 function installWin7Polyfills() {
   globalThis.__DSH_WIN7_TRACE__ = traceStage
+  // `none` keeps only what a module needs to *load* (the web streams the HTTP
+  // clients construct), so a boot can be compared with and without the rest.
+  const minimal = process.env.DSH_WIN7_POLYFILLS === 'none'
+  traceStage(`polyfills: ${minimal ? 'minimal' : 'full'}`)
+  installWebStreams()
+  if (minimal) return { node: process.versions.node, fetch: false, webSocket: false }
   installExitTrace()
   installRequireTrace()
   installDlopenTrace()
@@ -462,7 +468,6 @@ function installWin7Polyfills() {
   installAvailableParallelism()
   installArrayChangeMethods()
   installGlobSync()
-  installWebStreams()
   installBufferHelpers()
   installAddAbortListener()
   installSystemErrorMessage()
