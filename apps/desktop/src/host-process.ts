@@ -1,12 +1,11 @@
 /** Electron Node-mode child lifecycle for the shared Web application. */
 
 import { spawn, type ChildProcess } from 'node:child_process'
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { desktopNodeEnvironment } from './node-environment.ts'
-import { resolveChildWin7Compat, resolveWin7HostNode, win7ModuleRootEnvironment } from './win7/launch-compat.ts'
+import { resolveChildWin7Compat, win7ModuleRootEnvironment } from './win7/launch-compat.ts'
 
 /**
  * Summarize the newest Node fatal-error report in the compatibility runtime.
@@ -228,9 +227,6 @@ export class DesktopHostProcess {
     // redirects node:sqlite / node:sea. The Win10 track resolves undefined and
     // spawns exactly the argument list it always did.
     const win7 = resolveChildWin7Compat(primaryRuntime)
-    // The Windows 7 track runs the Host on the Node 16 binary its runtime ships
-    // rather than on Electron's Node build, which aborts this program natively.
-    const hostNode = (win7 === undefined ? undefined : resolveWin7HostNode(primaryRuntime)) ?? this.node
     const hostArguments = [
       // The Windows 7 track runs Node 16, where no consumer of `internals/…`
       // reaches past its version probe, and the flag changes how V8 exposes the
@@ -245,36 +241,15 @@ export class DesktopHostProcess {
       primaryRuntime,
       ...this.packageManager === undefined ? [] : [this.packageManager.pnpm, this.packageManager.nodeBin],
     ]
-    // A native abort leaves no JavaScript stack. When the diagnostic run names a
-    // native debugger, start the same program under it and dump the stack that
-    // raised the breakpoint.
-    const debuggerPath = win7 === undefined ? undefined : process.env.DSH_WIN7_CDB
-    // `-c` runs at the initial break, which is before the program starts. Break
-    // on the fault itself instead, and run the stack dump there.
-    const debuggerCommands = debuggerPath === undefined ? undefined : join(tmpdir(), 'dsh-win7-cdb.txt')
-    if (debuggerCommands !== undefined) {
-      // Written before the spawn: cdb reads it as soon as it starts.
-      writeFileSync(debuggerCommands, 'sxe 80000003 "kb; ~*kb; q"\ng\n')
-    }
-    const child = debuggerPath === undefined || debuggerCommands === undefined
-      ? spawn(hostNode, hostArguments, {
-        cwd: this.projectDir,
-        env: {
-          ...desktopNodeEnvironment(this.node, undefined, this.environment),
-          ...(win7 === undefined ? {} : win7.environment),
-          ...(win7 === undefined ? {} : win7ModuleRootEnvironment([this.runtimeDir])),
-        },
-        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-      })
-      : spawn(debuggerPath, ['-g', '-G', '-cf', debuggerCommands, hostNode, ...hostArguments], {
-        cwd: this.projectDir,
-        env: {
-          ...desktopNodeEnvironment(this.node, undefined, this.environment),
-          ...(win7 === undefined ? {} : win7.environment),
-          ...(win7 === undefined ? {} : win7ModuleRootEnvironment([this.runtimeDir])),
-        },
-        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-      })
+    const child = spawn(this.node, hostArguments, {
+      cwd: this.projectDir,
+      env: {
+        ...desktopNodeEnvironment(this.node, undefined, this.environment),
+        ...(win7 === undefined ? {} : win7.environment),
+        ...(win7 === undefined ? {} : win7ModuleRootEnvironment([this.runtimeDir])),
+      },
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    })
     this.child = child
     child.stderr?.setEncoding('utf8')
     child.stderr?.on('data', (chunk: string) => { this.stderr = (this.stderr + chunk).slice(-MAX_HOST_DIAGNOSTIC_CHARS) })
