@@ -11,7 +11,7 @@
  */
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
-import { openSync, writeSync } from 'node:fs'
+import { existsSync, openSync, readFileSync, writeSync } from 'node:fs'
 import { createRequire } from 'node:module'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -94,6 +94,12 @@ let profileRequire
 
 /**
  * Resolve a specifier the way Node would from the profile's package.json.
+ *
+ * `require.resolve` applies the `require` condition, so an ESM-only plugin that
+ * declares just `import` in its `exports` map throws there even though the Loader
+ * - itself ESM - could import it. Fall back to walking `node_modules` and picking
+ * the entry the way an ESM importer would, which is what makes third-party
+ * plugins installable on Node 16.
  * @param {string} specifier - Bare package specifier.
  * @returns Module URL, or undefined when the profile cannot resolve it either.
  */
@@ -102,8 +108,56 @@ function resolveFromProfile(specifier) {
     profileRequire ??= createRequire(join(process.cwd(), 'package.json'))
     return pathToFileURL(profileRequire.resolve(specifier)).href
   } catch {
+    const entry = findPackageEntry(specifier)
+    return entry === undefined ? undefined : pathToFileURL(entry).href
+  }
+}
+
+/**
+ * Locate a package directory under a `node_modules` above the working directory.
+ * @param {string} specifier - Bare specifier, optionally with a subpath.
+ * @returns Absolute path to the package's entry file, or undefined.
+ */
+function findPackageEntry(specifier) {
+  const parts = specifier.split('/')
+  const name = specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]
+  const subpath = specifier.slice(name.length).replace(/^\//u, '')
+  let directory = process.cwd()
+  for (;;) {
+    const candidate = join(directory, 'node_modules', name)
+    if (existsSync(join(candidate, 'package.json'))) {
+      return entryOf(candidate, subpath)
+    }
+    const parent = dirname(directory)
+    if (parent === directory) return undefined
+    directory = parent
+  }
+}
+
+/**
+ * Pick the file a package's `exports`/`main` points at, for the "." subpath.
+ * @param {string} directory - Package directory.
+ * @param {string} subpath - Requested subpath without a leading slash, may be empty.
+ * @returns Absolute entry path, or undefined when the manifest names nothing usable.
+ */
+function entryOf(directory, subpath) {
+  let manifest
+  try {
+    manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
+  } catch {
     return undefined
   }
+  if (subpath !== '') return join(directory, subpath)
+  const exported = manifest.exports
+  const candidate = typeof exported === 'string'
+    ? exported
+    : exported?.['.'] === undefined
+      ? undefined
+      : typeof exported['.'] === 'string'
+        ? exported['.']
+        : exported['.'].import ?? exported['.'].node ?? exported['.'].default
+  const chosen = candidate ?? manifest.module ?? manifest.main ?? 'index.js'
+  return join(directory, chosen)
 }
 
 /**
