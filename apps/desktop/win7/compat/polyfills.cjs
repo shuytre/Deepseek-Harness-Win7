@@ -461,6 +461,23 @@ function installHeartbeat() {
   if (typeof timer.unref === 'function') timer.unref()
 }
 
+/**
+ * Install the `crypto` global (Node 19, behind `--experimental-global-webcrypto`
+ * in 16). Node 16 has the WebCrypto implementation on `node:crypto`, but not as a
+ * global, and product modules reach it as `globalThis.crypto.getRandomValues`.
+ */
+function installWebCrypto() {
+  if (typeof globalThis.crypto === 'object' && globalThis.crypto !== null) return
+  let webcrypto
+  try {
+    webcrypto = require('node:crypto').webcrypto
+  } catch {
+    return
+  }
+  if (webcrypto === undefined) return
+  Object.defineProperty(globalThis, 'crypto', { configurable: true, writable: true, value: webcrypto })
+}
+
 /** Record a graceful end of the process, so an abort is distinguishable from an exit. */
 function installExitTrace() {
   if (process.env.DSH_WIN7_TRACE_REQUIRE !== '1') return
@@ -485,6 +502,7 @@ function installWin7Polyfills() {
   installPromiseWithResolvers()
   installAbortSignalHelpers()
   installStructuredClone()
+  installWebCrypto()
   installUrlCanParse()
   installAvailableParallelism()
   installArrayChangeMethods()

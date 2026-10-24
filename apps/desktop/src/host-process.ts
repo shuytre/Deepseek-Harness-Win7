@@ -191,7 +191,9 @@ export class DesktopHostProcess {
   }>()
 
   /**
-   * @param node - Absolute Electron executable in Node mode.
+   * @param node - Absolute interpreter for the Host: Electron in Node mode on the ordinary
+   *   track, the standalone Node a Windows 7 package ships, since that embedded runtime
+   *   aborts the config tree natively.
    * @param runtimeDir - Immutable packages carried by the current application.
    * @param projectDir - Desktop plugin profile and child working directory.
    * @param inspectPort - Optional loopback inspector port for workspace development.

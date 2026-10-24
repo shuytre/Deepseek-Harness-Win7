@@ -1,7 +1,9 @@
 import type { ProductEventMap, ProductEvent } from '@deepseek-ai/dsh-client-product-analytics/types'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
+import { resolveChildWin7Compat } from './win7/launch-compat.ts'
 /** Electron shell: desktop project ownership, custom protocol, windows, and lifecycle. */
 
+import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -158,9 +160,28 @@ interface RuntimeResources {
   readonly dsh: string
 }
 
+/**
+ * Standalone interpreter the Windows 7 track ships for the Host.
+ *
+ * Electron 22 embeds Node 16.17.1, and that embedded runtime aborts the Host
+ * natively (`STATUS_BREAKPOINT`, no JavaScript stack, no message) roughly 700 ms
+ * into mounting the plugin tree. The identical tree reports ready on the
+ * standalone Node 16.20.2 that the same package already carries for pnpm, so on
+ * this track the Host runs on that interpreter instead of Electron's Node mode.
+ * The Win10 track ships no `win7-compat`, resolves undefined, and keeps Electron.
+ * @returns Absolute `node.exe`, or undefined when this package is not the Win7 track.
+ */
+function win7HostInterpreter(): string | undefined {
+  if (!app.isPackaged) return undefined
+  const primaryRuntime = join(process.resourcesPath, 'runtime', 'primary-runtime')
+  if (resolveChildWin7Compat(primaryRuntime) === undefined) return undefined
+  const candidate = join(primaryRuntime, 'dependencies', 'node', 'bin', 'node.exe')
+  return existsSync(candidate) ? candidate : undefined
+}
+
 function runtimeResources(): RuntimeResources {
   const development = !app.isPackaged
-  const node = process.execPath
+  const node = win7HostInterpreter() ?? process.execPath
   const nodeBin = development ? join(app.getAppPath(), 'scripts', 'node-bin') : join(process.resourcesPath, 'runtime', 'bin')
   const pnpm = (development ? process.env.DSH_DESKTOP_PNPM_ENTRY : undefined)
     ?? (development ? join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'pnpm.mjs')

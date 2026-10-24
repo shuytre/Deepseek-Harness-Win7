@@ -150,6 +150,27 @@ function downloadFile(url: string, destination: string): Promise<void> {
 }
 
 /**
+ * Interpreter the Windows 7 Host runs on.
+ *
+ * Electron 22 embeds Node 16.17.1, and that embedded runtime aborts the Host
+ * natively with `STATUS_BREAKPOINT` about 700 ms into mounting the plugin tree:
+ * no JavaScript stack, no fatal report, no message. The identical tree reports
+ * ready on the standalone Node 16.20.2 the same package already ships for pnpm,
+ * so the Windows 7 track boots the Host on that interpreter — in the packaged
+ * shell and in this smoke, which is the only thing that exercises the boot before
+ * an installer exists. Every other track, and any Win7 build missing the shipped
+ * binary, keeps Electron's Node mode.
+ * @param electron - Electron executable for the ordinary track.
+ * @param resources - Runtime resource root that holds `primary-runtime`.
+ * @returns Absolute interpreter path for the Host.
+ */
+function resolveHostInterpreter(electron: string, resources: string): string {
+  if (!win7Profile().enabled) return electron
+  const candidate = join(resources, 'primary-runtime', 'dependencies', 'node', 'bin', 'node.exe')
+  return existsSync(candidate) ? candidate : electron
+}
+
+/**
  * Fetch a stock Node 16 build to compare against the runtime's own binary.
  *
  * The Host runs on the Electron binary in Node mode, which carries Chromium and
@@ -371,6 +392,9 @@ async function bootMatrix(): Promise<BootMatrix> {
   // removing it lets an out-of-memory or CHECK failure speak.
   const argsWithoutReport = args.filter((value, index) => value !== '--report-on-fatalerror' && args[index - 1] !== '--report-directory')
   const attempts: BootMatrixAttempt[] = []
+  // The interpreter that actually ships, so a failing boot matches the package
+  // instead of describing an interpreter the product never runs on.
+  const hostNode = resolveHostInterpreter(NODE, RUNTIME_ROOT)
   const boot = async (label: string, extra: {
     entries?: number
     skipped?: readonly string[]
@@ -389,7 +413,7 @@ async function bootMatrix(): Promise<BootMatrix> {
     process.stdout.write(`desktop runtime: win7 boot probe ${label}\n`)
     const startedAt = Date.now()
     const result = await probeHostAttempt({
-      executable: extra.executable ?? NODE,
+      executable: extra.executable ?? hostNode,
       args: extra.args ?? args,
       environment,
       projectDir: profileDirectory,
@@ -452,6 +476,9 @@ async function bootMatrix(): Promise<BootMatrix> {
     args: [...args.slice(0, args.indexOf(entry)), minimalTree], aliveMs: 3_500, timeoutMs: 15_000,
   })
   await boot('whole tree', {})
+  // The interpreter the package no longer uses, kept side by side: this is the
+  // comparison that decides whether the switch is what fixes the boot.
+  await boot('whole tree on Electron node', { executable: NODE })
   // A fatal-error report that faults on its own way out hides the runtime's
   // message; without it, an out-of-memory or a CHECK names itself on stderr.
   await boot('whole tree, no fatal report', { args: argsWithoutReport })
@@ -468,7 +495,7 @@ async function bootMatrix(): Promise<BootMatrix> {
   await boot('whole tree, minimal polyfills', { environment: { DSH_WIN7_POLYFILLS: 'none' } })
   // A beat every 25 ms makes the abort's own clock readable.
   await boot('whole tree, heartbeat', { environment: { DSH_WIN7_HEARTBEAT: '1', DSH_WIN7_TRACE_REQUIRE: '0' } })
-  const commonNode = await downloadCommonNode()
+  const commonNode = hostNode === NODE ? await downloadCommonNode() : undefined
   if (commonNode !== undefined) {
     await boot('whole tree on stock Node 16', { executable: commonNode })
   }
@@ -490,7 +517,7 @@ async function bootMatrix(): Promise<BootMatrix> {
   // One boot under a debugger, last, because it is the only attempt that can name
   // the frame that raised the breakpoint.
   process.stdout.write('desktop runtime: win7 boot probe under debugger\n')
-  const stack = await debuggerStack(NODE, args, baseEnvironment, profileDirectory)
+  const stack = await debuggerStack(hostNode, args, baseEnvironment, profileDirectory)
   process.stdout.write(`desktop runtime: win7 debugger -> ${stack ?? 'not available'}\n`)
   const summary = attempts.map(attempt => `${attempt.label}: ${attempt.verdict}${attempt.code === null ? '' : ` (${String(attempt.code)})`}${attempt.wer === undefined ? '' : ` {${attempt.wer}}`}`).join('; ')
   process.stdout.write(`desktop runtime: win7 boot matrix -> ${summary}\n`)
@@ -568,7 +595,7 @@ async function main(): Promise<void> {
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:write-descriptor', async () => writeDesktopRuntime(DSH_OUTPUT_ROOT, release, packageSet.packages.map(entry => entry.name), target))
     const verifiedDescriptor = await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:verify-before-smoke', () => verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target))
     if (!process.argv.includes('--defer-runtime-smoke')) {
-      await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:smoke', () => smokePreparedRuntime(DSH_OUTPUT_ROOT, NODE, RUNTIME_ROOT, verifiedDescriptor))
+      await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:smoke', () => smokePreparedRuntime(DSH_OUTPUT_ROOT, resolveHostInterpreter(NODE, RUNTIME_ROOT), RUNTIME_ROOT, verifiedDescriptor))
       await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:verify-after-smoke', () => verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target))
     }
   } catch (error) {
