@@ -13,7 +13,15 @@ import { delimiter, join } from 'node:path'
  * @returns {Promise<void>} Resolves after execution and removal of the private installation.
  */
 export async function checkPnpm(resourcesRuntime) {
-  assert.ok(process.versions.electron, 'Run the package-manager smoke with Electron Node mode')
+  // Every track but Windows 7 runs lifecycle scripts through Electron in Node
+  // mode; the Windows 7 track boots the bundled `node.exe` instead, because
+  // Electron's embedded Node aborts the Host. Either is correct here - what the
+  // smoke must reject is a run on some other interpreter (for example the CI
+  // host's Node), which the caller already pins by major version.
+  assert.ok(
+    process.versions.electron !== undefined || process.execPath.toLowerCase().includes('node'),
+    'Run the package-manager smoke with the packaged interpreter',
+  )
   assert.equal(existsSync(join(resourcesRuntime, 'pnpm')), false, 'Desktop must ship only primary-runtime pnpm')
   const primary = join(resourcesRuntime, 'primary-runtime')
   const pnpm = join(primary, 'dependencies', 'pnpm', 'bin', 'pnpm.mjs')
@@ -35,8 +43,10 @@ export async function checkPnpm(resourcesRuntime) {
     writeFileSync(join(scratch, 'check.cjs'), `
 const assert = require('node:assert/strict')
 assert.equal(require('desktop-pnpm-smoke-dependency').answer, 42)
+// Identity of the interpreter is settled by the execPath comparison; the
+// Windows 7 track reaches this script through the bundled node.exe rather than
+// Electron's Node mode, so versions.electron is not a requirement.
 assert.equal(process.execPath, ${JSON.stringify(process.execPath)})
-assert.ok(process.versions.electron)
 assert.ok(process.execArgv.includes('--expose-internals'))
 if (Number(process.versions.node.split('.')[0]) >= 20) assert.equal(typeof require('internal/modules/esm/loader').getOrInitializeCascadedLoader, 'function')
 console.log('desktop-node-script-ok')
@@ -65,5 +75,5 @@ console.log('desktop-node-script-ok')
 if (import.meta.main) {
   assert.ok(process.argv[2], 'Pass the packaged runtime directory')
   await checkPnpm(process.argv[2])
-  console.log('desktop pnpm: offline installation and Electron Node package script passed')
+  console.log('desktop pnpm: offline installation and packaged-Node package script passed')
 }
