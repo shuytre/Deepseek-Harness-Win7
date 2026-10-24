@@ -18,7 +18,7 @@ import { spawn } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { delimiter, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { scanDirectory } from './check/scan-pe-imports.mjs'
+import { knownWin7Blocker, scanDirectory } from './check/scan-pe-imports.mjs'
 import { probeEntryImports } from './probe-imports.mjs'
 import { win7Profile } from './profile.mjs'
 
@@ -122,21 +122,36 @@ async function scanPackagedPayload() {
     return false
   }
   const { findings, scanned } = await scanDirectory(root)
+  // Third-party binaries that only a Windows 10 SDK can produce are documented
+  // downgrades, not regressions: report them separately so anything else still
+  // fails the build.
+  const known = findings.filter(finding => knownWin7Blocker(finding.file) !== undefined)
+  const unexpected = findings.filter(finding => knownWin7Blocker(finding.file) === undefined)
+  const downgrades = [...new Map(known.map(finding => {
+    const blocker = knownWin7Blocker(finding.file)
+    return [blocker.feature, blocker.reason]
+  })).entries()].map(([feature, reason]) => ({ feature, reason }))
   const report = {
     root,
     scannedFiles: scanned.length,
-    findings,
+    findings: unexpected,
+    knownDowngrades: downgrades,
+    knownFindings: known,
   }
   writeFileSync(join(RUN_DIRECTORY, 'pe-import-report.json'), `${JSON.stringify(report, undefined, 2)}\n`)
   stepResults.push({
     name: 'scan',
-    code: findings.length === 0 ? 0 : 1,
-    detail: `${scanned.length} PE files scanned, ${findings.length} Windows 7 violations`,
+    code: unexpected.length === 0 ? 0 : 1,
+    detail: `${scanned.length} PE files scanned, ${unexpected.length} unexpected violations, `
+      + `${known.length} known third-party imports (${downgrades.map(entry => entry.feature).join(', ')})`,
   })
-  for (const finding of findings.slice(0, 40)) {
-    process.stdout.write(`[win7] ${finding.kind} ${finding.name} (Windows ${finding.floor}+) in ${relative(REPOSITORY_ROOT, finding.file)}\n`)
+  for (const finding of unexpected.slice(0, 40)) {
+    process.stdout.write(`[win7] violation ${finding.kind} ${finding.name} (Windows ${finding.floor}+) in ${relative(REPOSITORY_ROOT, finding.file)}\n`)
   }
-  return findings.length === 0
+  for (const entry of downgrades) {
+    process.stdout.write(`[win7] known downgrade: ${entry.feature} - ${entry.reason}\n`)
+  }
+  return unexpected.length === 0
 }
 
 /** Copy the produced installer into `dist/` under its published name. */

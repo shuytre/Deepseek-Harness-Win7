@@ -156,6 +156,35 @@ export function findWindows7Violations(imports) {
 const PE_EXTENSIONS = new Set(['.exe', '.dll', '.node', '.pyd', '.so'])
 
 /**
+ * Third-party binaries the track has to ship but cannot make NT 6.1 import-clean.
+ *
+ * Every entry names the feature that degrades instead, so the scan can still fail
+ * on a new violation — in the shell, in the runtime, or in a package we build —
+ * without blocking on binaries that only a Windows 10 SDK can produce.
+ */
+export const KNOWN_WIN7_IMPORT_BLOCKERS = [
+  { pattern: /[\\/]node-pty[\\/].*[\\/]conpty[\\/]/iu, feature: 'terminal',
+    reason: 'ConPTY is a Windows 10 API; node-pty starts winpty on Windows 7 instead' },
+  { pattern: /[\\/]@img[\\/]sharp-win32-x64[\\/]/iu, feature: 'image processing',
+    reason: 'sharp requires Node 20+ and is never loaded on the Node 16 track' },
+  { pattern: /[\\/]sherpa-onnx-win-x64[\\/]/iu, feature: 'speech',
+    reason: 'the speech engine has no Windows 7 build; dictation stays unavailable' },
+  { pattern: /[\\/]@vscode[\\/]ripgrep-win32-x64[\\/]/iu, feature: 'file search',
+    reason: 'ripgrep releases target Windows 8.1+; content search degrades' },
+  { pattern: /[\\/]libreoffice-kit-win32-x64[\\/]/iu, feature: 'document conversion',
+    reason: 'the office engine imports Windows 8 synchronisation primitives; conversion degrades' },
+]
+
+/**
+ * Identify a documented third-party downgrade.
+ * @param {string} file - Absolute path of the scanned binary.
+ * @returns {{ pattern: RegExp, feature: string, reason: string } | undefined} Matching entry, if the file is a known blocker.
+ */
+export function knownWin7Blocker(file) {
+  return KNOWN_WIN7_IMPORT_BLOCKERS.find(entry => entry.pattern.test(file))
+}
+
+/**
  * Walk a directory tree and scan every PE file.
  * @param {string} root - Directory to scan.
  * @returns {Promise<{ findings: Array<{ file: string, kind: string, name: string, floor: number }>, scanned: string[] }>} Findings and scanned files.
