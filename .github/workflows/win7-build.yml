@@ -179,8 +179,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # A tag push names the release: the pushed tag is the one a caller of
+          # this workflow already knows. Only a manual run without a name falls
+          # back to the run number.
           $tag = '${{ inputs.release_tag }}'
-          if ([string]::IsNullOrWhiteSpace($tag)) { $tag = "win7-${{ github.run_number }}" }
+          if ([string]::IsNullOrWhiteSpace($tag)) { $tag = '${{ github.ref_name }}' }
+          if ($tag -notlike 'win7-*') { $tag = "win7-${{ github.run_number }}" }
           $installer = Get-ChildItem dist -Filter '*win7*setup.exe' | Select-Object -First 1
           if ($null -eq $installer) { throw 'no *win7*setup.exe artifact was produced' }
           Write-Host "asset: $($installer.FullName) ($([math]::Round($installer.Length/1MB,1)) MB)"

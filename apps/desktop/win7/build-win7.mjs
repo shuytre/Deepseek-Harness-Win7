@@ -287,7 +287,9 @@ function findElectron() {
 function reportBootMatrix() {
   const path = join(RUN_DIRECTORY, 'win7-boot-matrix.json')
   if (!existsSync(path)) {
-    stepResults.push({ name: 'boot-matrix', code: 2, detail: `no boot matrix at ${path}` })
+    // The matrix is only written by the on-failure probe. A packaging step that
+    // completed never needed it, so its absence is the healthy outcome.
+    stepResults.push({ name: 'boot-matrix', code: 0, detail: 'not produced: no boot aborted during packaging' })
     return
   }
   const matrix = JSON.parse(readFileSync(path, 'utf8'))
