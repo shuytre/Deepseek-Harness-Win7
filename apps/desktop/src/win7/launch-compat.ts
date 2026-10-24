@@ -58,8 +58,10 @@ export function resolveChildWin7Compat(primaryRuntime: string): Win7ChildCompat 
       // exist before Node 20. `NODE_OPTIONS` is the only channel that follows the
       // whole descendant tree, so every Node child inherits the polyfills. The
       // preload is idempotent, which keeps the double load on the Host itself
-      // harmless.
-      NODE_OPTIONS: [process.env.NODE_OPTIONS?.trim(), `--require "${join(directory, 'polyfills.cjs')}"`]
+      // harmless. Node's `NODE_OPTIONS` tokenizer drops backslashes as escapes,
+      // so the path is written with forward slashes and quoted for spaces.
+      NODE_OPTIONS: [process.env.NODE_OPTIONS?.trim(),
+        `--require "${join(directory, 'polyfills.cjs').split('\\').join('/')}"`]
         .filter(entry => entry !== undefined && entry !== '').join(' '),
       // One ordered trace across the preload, the loader thread and the product
       // modules: the Host's stderr is a separately buffered Windows pipe that a
