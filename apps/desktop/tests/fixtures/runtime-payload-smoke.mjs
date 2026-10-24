@@ -14,7 +14,15 @@ const runtime = process.argv[2]
 assert.ok(runtime, 'Pass the filtered resources/dsh directory')
 const root = resolve(runtime)
 const descriptor = JSON.parse(readFileSync(join(root, 'desktop-runtime.json'), 'utf8'))
-assert.equal(process.versions.node, descriptor.release.nodeVersion, 'Run with the Electron Node runtime version')
+// The point of this assertion is that the payload runs on the Node the package
+// ships, not on the CI host's Node 22. The Win7 track boots the Host on the
+// bundled `node.exe` (16.20.2) instead of Electron's embedded 16.17.1, so the
+// patch level is allowed to differ while the major must still match.
+assert.equal(
+  process.versions.node.split('.')[0],
+  descriptor.release.nodeVersion.split('.')[0],
+  `Run with the packaged Node runtime (${descriptor.release.nodeVersion} series), not the build host`,
+)
 assert.equal(process.platform, descriptor.platform)
 assert.equal(process.arch, descriptor.arch)
 const resourcesRuntime = process.argv[3] ?? join(dirname(root), 'runtime')
