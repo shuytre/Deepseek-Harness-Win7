@@ -37,4 +37,11 @@ if (!existsSync(hostCli)) {
   }
   throw new Error('desktop package: the shipped runtime omits the Host CLI')
 }
-await smokePreparedRuntime(dsh, executable, join(resources, 'runtime'), descriptor)
+// The Windows 7 track boots the Host on the standalone Node shipped beside
+// `primary-runtime`; Electron's own Node mode aborts on that track, so the smoke
+// must use the same interpreter the packaged application actually starts.
+const hostNode = join(resources, 'runtime', 'primary-runtime', 'dependencies', 'node', 'bin', 'node.exe')
+const interpreter = existsSync(join(resources, 'runtime', 'win7-compat', 'polyfills.cjs')) && existsSync(hostNode)
+  ? hostNode : executable
+if (interpreter !== executable) process.stdout.write(`desktop package: host interpreter ${interpreter}\n`)
+await smokePreparedRuntime(dsh, interpreter, join(resources, 'runtime'), descriptor)
