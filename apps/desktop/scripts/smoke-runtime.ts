@@ -150,6 +150,14 @@ export function apply(ctx) {
 `)
     writeFileSync(join(plugin, 'bundle.yml'), '- insert:\n    - id: desktop-runtime-smoke-plugin\n      name: desktop-runtime-smoke-plugin\n      inject: [webServer, officeToPdf, skills, pluginManager]\n')
     cpSync(plugin, join(profile, 'node_modules', pluginName), { recursive: true })
+    // The Loader imports an entry by its bare name from inside the dsh
+    // installation, so the package must also sit where Node's own walk-up finds
+    // it. On Node 20+ the profile-scoped resolver interception would bridge the
+    // two; it needs `node-addon-require-builtin`, which has no Node 16 build, so
+    // on the Windows 7 track the profile copy alone is unreachable. The second
+    // copy is removed in `finally` so the installer never ships a test plugin.
+    const installerCopy = join(root, 'node_modules', pluginName)
+    cpSync(plugin, installerCopy, { recursive: true })
     const manifest = JSON.parse(readFileSync(join(profile, 'package.json'), 'utf8')) as {
       dependencies?: Record<string, string>
       dsh: { profile: { bundles: string[] } }
@@ -208,6 +216,9 @@ export function apply(ctx) {
     clearTimeout(timer)
     try { await host.stop() } finally {
       await rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+      await rm(join(root, 'node_modules', 'desktop-runtime-smoke-plugin'), {
+        recursive: true, force: true, maxRetries: 20, retryDelay: 50,
+      })
     }
   }
 }

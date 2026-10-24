@@ -5,7 +5,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { availableParallelism } from 'node:os'
+import * as os from 'node:os'
 import * as vm from 'node:vm'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-ptc-runtime'
@@ -44,6 +44,22 @@ export interface Config {
 }
 
 type ResolvedConfig = Required<Config>
+
+/**
+ * Report the CPU count this process may use.
+ *
+ * `os.availableParallelism` arrived in Node 18.14, and a named import is a
+ * link-time failure on older runtimes — it cannot be guarded at the call site.
+ * The Windows 7 track runs Node 16, so read the function off the namespace and
+ * count processors when it is absent.
+ * @returns Usable parallelism, never below 1.
+ */
+function usableParallelism(): number {
+  const candidate = (os as { availableParallelism?: () => number }).availableParallelism
+  if (typeof candidate === 'function') return candidate()
+  const { length } = os.cpus()
+  return length > 0 ? length : 1
+}
 
 /** A body that still carries the Claude Code-style meta header (meta rides the seam as data here). */
 const META_STATEMENT = /^\s*export\s+const\s+meta\b/
@@ -140,7 +156,7 @@ class PtcWorkflowEngine extends WorkflowEngine {
     const info: WorkflowRunInfo = { id, meta }
     const limits: WorkerLimits = {
       maxConcurrentAgents: this.config.maxConcurrentAgents === 0
-        ? Math.min(16, Math.max(1, availableParallelism() - 2))
+        ? Math.min(16, Math.max(1, usableParallelism() - 2))
         : this.config.maxConcurrentAgents,
       maxTotalAgents,
       maxItemsPerCall: this.config.maxItemsPerCall,
