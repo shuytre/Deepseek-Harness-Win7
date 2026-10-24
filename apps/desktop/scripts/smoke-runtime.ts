@@ -217,11 +217,30 @@ export function apply(ctx) {
       throw new Error(`desktop runtime: bundled pnpm plugin installation failed: ${installationResult}${hostDiagnostics(active)}`)
     }
     for (const { extension } of inputs) {
-      const converted = await fetch(new URL(`/desktop-smoke-office/${extension}`, session.ready.url), {
-        headers: { cookie: session.cookie }, signal: AbortSignal.timeout(120_000),
-      })
-      if (!converted.ok) throw new Error(`desktop runtime: ${extension} conversion failed: ${await converted.text()}${hostDiagnostics(active)}`)
-      const pdf = Buffer.from(await converted.arrayBuffer())
+      // The conversion itself completes; what fails is the kit's cleanup of its
+      // scratch profile, because the soffice process outlives the helper that
+      // started it and still holds the directory (`EPERM: rmdir ...`). The lock
+      // clears within a moment, so a repeat of the same conversion is the honest
+      // check - a real conversion failure repeats as well.
+      let pdf: Buffer | undefined
+      let failure = ''
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const converted = await fetch(new URL(`/desktop-smoke-office/${extension}`, session.ready.url), {
+          headers: { cookie: session.cookie }, signal: AbortSignal.timeout(120_000),
+        })
+        if (converted.ok) {
+          pdf = Buffer.from(await converted.arrayBuffer())
+          break
+        }
+        failure = await converted.text()
+        if (attempt < 3) {
+          process.stdout.write(`desktop runtime: ${extension} conversion attempt ${String(attempt)} failed, retrying: ${failure.split('\n')[0] ?? ''}\n`)
+          await new Promise(resolve => setTimeout(resolve, 1_500 * attempt))
+        }
+      }
+      if (pdf === undefined) {
+        throw new Error(`desktop runtime: ${extension} conversion failed: ${failure}${hostDiagnostics(active)}`)
+      }
       if (!/^%PDF-\d\.\d/u.test(pdf.subarray(0, 8).toString())
         || !pdf.subarray(-1024).toString().trimEnd().endsWith('%%EOF')) {
         throw new Error(`desktop runtime: invalid ${extension} PDF output`)
