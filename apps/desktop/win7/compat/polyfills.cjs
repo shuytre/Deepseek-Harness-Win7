@@ -116,9 +116,13 @@ function installUrlCanParse() {
 function installAvailableParallelism() {
   const os = require('node:os')
   if (typeof os.availableParallelism === 'function') return
+  // Node builds a builtin's ESM facade from its enumerable own properties, so
+  // `import { availableParallelism } from 'node:os'` only links when the patch
+  // is enumerable. `@deepseek-ai/dsh-workflow-ptc` imports it by name.
   Object.defineProperty(os, 'availableParallelism', {
     configurable: true,
     writable: true,
+    enumerable: true,
     value: function availableParallelism() {
       try {
         const values = os.cpus()

@@ -342,6 +342,16 @@ export class DesktopHostProcess {
    * @returns Completion of owned process teardown. DesktopHostUncleanExitError confirms exit but refuses installation;
    * other failures do not confirm exit.
    */
+  /**
+   * Everything the Host has written to stderr so far.
+   *
+   * A plugin that never activates reports itself only on stderr — its service
+   * stays pending, so the HTTP route it would have registered is simply absent.
+   * A smoke that sees a missing route has nothing else to quote.
+   * @returns The tail of the Host's stderr channel.
+   */
+  get diagnostic(): string { return this.stderr }
+
   async stop(requireGraceful = false): Promise<void> {
     const child = this.child
     if (child === undefined) return

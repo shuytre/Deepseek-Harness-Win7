@@ -13,6 +13,19 @@ import { createPluginProfile } from '../src/project-manager.ts'
 import type { DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 
 /**
+ * Quote the Host's own diagnostics.
+ *
+ * A plugin that fails to activate writes the reason to stderr and nowhere else,
+ * so a failed assertion inside the smoke is otherwise unexplainable.
+ * @param host - The Host process the smoke is driving.
+ * @returns A newline-prefixed stderr block, or an empty string when it is silent.
+ */
+function hostDiagnostics(host: DesktopHostProcess): string {
+  const text = host.diagnostic.trim()
+  return text === '' ? '' : `\n[host stderr]\n${text.slice(-4_000)}`
+}
+
+/**
  * Check CLI package operations, Host startup, its frontend, external plugins and real Office-to-PDF conversion.
  * @param root - Materialized dsh resources.
  * @param node - Prepared target Electron executable.
@@ -156,20 +169,26 @@ export function apply(ctx) {
       throw new Error('desktop runtime: packaged frontend smoke failed')
     }
     const pluginResponse = await fetch(new URL('/desktop-smoke', ready.url), { headers: { cookie } })
-    if (await pluginResponse.text() !== 'plugin route ready') throw new Error('desktop runtime: plugin HTTP route failed')
+    const pluginBody = await pluginResponse.text()
+    if (pluginBody !== 'plugin route ready') {
+      // The smoke plugin injects [webServer, officeToPdf, skills, pluginManager];
+      // a service that never appeared leaves the route absent and the reason on
+      // the Host's stderr, which is the only place it is written.
+      throw new Error(`desktop runtime: plugin HTTP route failed: ${String(pluginResponse.status)} ${pluginBody.slice(0, 400)}${hostDiagnostics(host)}`)
+    }
     const installation = await fetch(new URL('/desktop-smoke-install', ready.url), {
       headers: { cookie }, signal: AbortSignal.timeout(120_000),
     })
     const installationResult = await installation.text()
     const installed = await fetch(new URL('/desktop-smoke-installed', ready.url), { headers: { cookie } })
     if (!installation.ok || !installed.ok || await installed.text() !== 'installed plugin ready') {
-      throw new Error(`desktop runtime: bundled pnpm plugin installation failed: ${installationResult}`)
+      throw new Error(`desktop runtime: bundled pnpm plugin installation failed: ${installationResult}${hostDiagnostics(host)}`)
     }
     for (const { extension } of inputs) {
       const converted = await fetch(new URL(`/desktop-smoke-office/${extension}`, ready.url), {
         headers: { cookie }, signal: AbortSignal.timeout(120_000),
       })
-      if (!converted.ok) throw new Error(`desktop runtime: ${extension} conversion failed: ${await converted.text()}`)
+      if (!converted.ok) throw new Error(`desktop runtime: ${extension} conversion failed: ${await converted.text()}${hostDiagnostics(host)}`)
       const pdf = Buffer.from(await converted.arrayBuffer())
       if (!/^%PDF-\d\.\d/u.test(pdf.subarray(0, 8).toString())
         || !pdf.subarray(-1024).toString().trimEnd().endsWith('%%EOF')) {
@@ -179,7 +198,7 @@ export function apply(ctx) {
     const cliResponse = await fetch(new URL('/desktop-smoke-office-cli', ready.url), {
       headers: { cookie }, signal: AbortSignal.timeout(120_000),
     })
-    if (!cliResponse.ok) throw new Error(`desktop runtime: skill CLI failed: ${await cliResponse.text()}`)
+    if (!cliResponse.ok) throw new Error(`desktop runtime: skill CLI failed: ${await cliResponse.text()}${hostDiagnostics(host)}`)
     const cliResult = await cliResponse.json() as { capabilities: { runtime: { cliPath: string } }; pdf: string }
     if (!cliResult.capabilities.runtime.cliPath.endsWith('cli.js') || Buffer.from(cliResult.pdf, 'base64').subarray(0, 5).toString() !== '%PDF-') {
       throw new Error('desktop runtime: skill CLI did not return capabilities and a PDF')
