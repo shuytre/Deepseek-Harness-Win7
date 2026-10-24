@@ -175,6 +175,9 @@ async function bootMatrix(): Promise<BootMatrix> {
     DSH_WIN7_COMPAT_DIR: compat,
     DSH_WIN7_MODULE_ROOTS: DSH_OUTPUT_ROOT,
     DSH_WIN7_TRACE_REQUIRE: '1',
+    // The trace mirror floods the child's stderr, which is the only pipe a fatal
+    // report and an uncaught error reach; the matrix reads the file instead.
+    DSH_WIN7_TRACE_MIRROR: '0',
     DSH_WIN7_TRACE_FILE: tracePath,
   }
   const args = [
@@ -190,19 +193,29 @@ async function bootMatrix(): Promise<BootMatrix> {
     join(RUNTIME_ROOT, 'bin'),
   ]
   const attempts: BootMatrixAttempt[] = []
-  const boot = async (label: string, extra: { entries?: number; skipped?: readonly string[] }): Promise<BootMatrixAttempt> => {
-    const environment = { ...baseEnvironment }
+  const boot = async (label: string, extra: {
+    entries?: number
+    skipped?: readonly string[]
+    args?: readonly string[]
+    ipc?: boolean
+    aliveMs?: number
+    timeoutMs?: number
+    environment?: Record<string, string | undefined>
+  }): Promise<BootMatrixAttempt> => {
+    const environment = { ...baseEnvironment, ...(extra.environment ?? {}) }
     if (extra.entries !== undefined) environment.DSH_WIN7_MAX_ENTRIES = String(extra.entries)
     if (extra.skipped !== undefined) environment.DSH_WIN7_SKIP_ENTRIES = extra.skipped.join(',')
     process.stdout.write(`desktop runtime: win7 boot probe ${label}\n`)
     const result = await probeHostAttempt({
       executable: NODE,
-      args,
+      args: extra.args ?? args,
       environment,
       projectDir: profileDirectory,
       tracePath,
       reportDirectory: compat,
-      timeoutMs: 90_000,
+      timeoutMs: extra.timeoutMs ?? 90_000,
+      aliveMs: extra.aliveMs,
+      ipc: extra.ipc,
       log: (line: string) => { process.stdout.write(`${line}\n`) },
     })
     const attempt: BootMatrixAttempt = {
@@ -220,7 +233,18 @@ async function bootMatrix(): Promise<BootMatrix> {
     attempts.push(attempt)
     return attempt
   }
+  // Controls first: if a process that only sleeps dies on the same clock, the
+  // abort belongs to the runtime or to the preload, not to the config tree.
+  const controlScript = join(home, 'win7-control.mjs')
+  writeFileSync(controlScript, "setTimeout(() => { process.stdout.write('control alive\\n') }, 3000)\n")
+  const polyfills = join(compat, 'polyfills.cjs')
+  await boot('control: polyfills + ipc', { args: ['--require', polyfills, controlScript], aliveMs: 2_500, timeoutMs: 15_000 })
+  await boot('control: no preload, ipc', { args: [controlScript], aliveMs: 2_500, timeoutMs: 15_000 })
+  await boot('control: polyfills, no ipc', { args: ['--require', polyfills, controlScript], ipc: false, aliveMs: 2_500, timeoutMs: 15_000 })
   await boot('whole tree', {})
+  // The preload replaces globals, patches builtin module objects and installs a
+  // fetch stack; keeping only what a module needs to load tests that set.
+  await boot('whole tree, minimal polyfills', { environment: { DSH_WIN7_POLYFILLS: 'none' } })
   const one = await boot('first entry only', { entries: 1 })
   const two = await boot('first two entries', { entries: 2 })
   // The row the failed trace names last is the one whose mount aborts; dropping it

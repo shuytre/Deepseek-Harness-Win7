@@ -16,6 +16,10 @@ export interface HostBootAttemptOptions {
   readonly reportDirectory?: string | undefined
   /** Upper bound on one boot; a boot that reports readiness is killed immediately. */
   readonly timeoutMs?: number | undefined
+  /** Milliseconds after which a still-running child counts as a success (controls). */
+  readonly aliveMs?: number | undefined
+  /** Whether to give the child an IPC channel on stdio 3; the shell always does. */
+  readonly ipc?: boolean | undefined
   /** Line sink for the build log. */
   readonly log?: ((line: string) => void) | undefined
 }

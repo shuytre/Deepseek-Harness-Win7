@@ -73,7 +73,8 @@ function fatalReport(directory) {
  * @returns Verdict record: whether the tree mounted, the exit code, and the witness tails.
  */
 export function probeHostAttempt({
-  executable, args, environment, projectDir, tracePath, reportDirectory, timeoutMs = DEFAULT_TIMEOUT_MS, log = () => {},
+  executable, args, environment, projectDir, tracePath, reportDirectory, timeoutMs = DEFAULT_TIMEOUT_MS,
+  aliveMs, ipc = true, log = () => {},
 }) {
   resetTrace(tracePath)
   const started = Date.now()
@@ -82,6 +83,8 @@ export function probeHostAttempt({
     let output = ''
     let readyUrl
     let child
+    let timer
+    let aliveTimer
     const collect = (chunk) => {
       output += chunk
       if (output.length > MAX_OUTPUT) output = output.slice(-MAX_OUTPUT / 2)
@@ -98,8 +101,9 @@ export function probeHostAttempt({
       if (settled) return
       settled = true
       clearTimeout(timer)
+      if (aliveTimer !== undefined) clearTimeout(aliveTimer)
       const trace = traceText()
-      const booted = outcome === 'ready' || trace.includes('profile-boot: booted')
+      const booted = outcome === 'ready' || outcome === 'alive' || trace.includes('profile-boot: booted')
       const traceTail = trace.trim().split('\n').slice(-4).join(' | ').slice(0, 800)
       const report = booted || reportDirectory === undefined ? undefined : fatalReport(reportDirectory)
       const record = {
@@ -109,7 +113,7 @@ export function probeHostAttempt({
         ms: Date.now() - started,
         readyUrl,
         traceTail,
-        outputTail: output.trim().split('\n').slice(-8).join(' | ').slice(0, 1200),
+        outputTail: output.trim().split('\n').slice(-24).join(' | ').slice(0, 4000),
         fatal: report,
       }
       log(`[win7] boot ${executable}: ${record.verdict} (${outcome}) after ${String(record.ms)} ms${code === null ? '' : ` code ${String(code)}`}`)
@@ -125,14 +129,15 @@ export function probeHostAttempt({
       child = spawn(executable, args, {
         cwd: projectDir,
         env: environment,
-        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+        stdio: ipc ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
       })
     } catch (error) {
       resolvePromise({ verdict: 'died', outcome: 'spawn-failed', code: null, ms: 0, detail: String(error) })
       return
     }
-    const timer = setTimeout(() => { finish('timeout', null) }, timeoutMs)
+    timer = setTimeout(() => { finish('timeout', null) }, timeoutMs)
+    aliveTimer = aliveMs === undefined ? undefined : setTimeout(() => { finish('alive', null) }, aliveMs)
     child.stdout?.on('data', collect)
     child.stderr?.on('data', collect)
     child.on('message', (message) => {

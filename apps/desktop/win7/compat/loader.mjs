@@ -41,8 +41,9 @@ function trace(stage) {
     const target = traceSink()
     writeSync(target, line)
     // Mirrored to stderr: a shell keeps that pipe's tail, so the last modules
-    // stay visible even when the trace file is lost.
-    if (target !== 2) writeSync(2, line)
+    // stay visible even when the trace file is lost. `DSH_WIN7_TRACE_MIRROR=0`
+    // leaves stderr to the product's own diagnostics.
+    if (target !== 2 && process.env.DSH_WIN7_TRACE_MIRROR !== '0') writeSync(2, line)
   } catch {
     // stderr may already be closed during teardown.
   }

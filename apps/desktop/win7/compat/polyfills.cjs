@@ -416,8 +416,10 @@ function traceStage(stage) {
     }
     fs.writeSync(traceSink, line)
     // Mirror to stderr as well: the shell keeps the tail of that pipe, so the
-    // last stages survive even if the trace file never arrives.
-    if (traceSink !== 2) fs.writeSync(2, line)
+    // last stages survive even if the trace file never arrives. The mirror also
+    // floods the pipe a fatal report writes to, so `DSH_WIN7_TRACE_MIRROR=0`
+    // keeps the file and leaves stderr to the product's own diagnostics.
+    if (traceSink !== 2 && process.env.DSH_WIN7_TRACE_MIRROR !== '0') fs.writeSync(2, line)
   } catch {
     // A closed sink during teardown must not turn a trace into a failure.
   }
