@@ -20,9 +20,10 @@ const executable = windows ? join(application, 'DeepSeek Harness.exe') : join(ap
 const descriptor = await verifyDesktopRuntime(paths.dsh, readDesktopRuntime(paths.dsh).release.version,
   resolveDesktopPackageTarget(target))
 if (windows && !values.unsigned) await verifyWindowsCode(application)
-// The Windows 7 track unpacks the whole runtime for its real `node.exe`, which
-// cannot read inside `app.asar`; smoke the tree the application itself launches.
+// The Windows 7 track ships the runtime as plain files (`resources/dsh`) because
+// its real `node.exe` cannot read inside `app.asar`; smoke the tree the
+// application itself launches.
 const packedDsh = join(resources, 'app.asar', 'dsh')
-const unpackedDsh = join(resources, 'app.asar.unpacked', 'dsh')
-await smokePreparedRuntime(existsSync(join(unpackedDsh, 'package.json')) ? unpackedDsh : packedDsh,
-  executable, join(resources, 'runtime'), descriptor)
+const dshCandidates = [join(resources, 'dsh'), join(resources, 'app.asar.unpacked', 'dsh')]
+const dsh = dshCandidates.find(directory => existsSync(join(directory, 'package.json'))) ?? packedDsh
+await smokePreparedRuntime(dsh, executable, join(resources, 'runtime'), descriptor)

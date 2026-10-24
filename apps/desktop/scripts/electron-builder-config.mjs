@@ -141,21 +141,24 @@ export function createElectronBuilderConfig(
       'lib/preload-welcome.cjs',
       'renderer/**/*',
       'package.json',
-      { from: buildPaths.dsh, to: 'dsh', filter: ['**/*'] },
-      // electron-builder excludes a source directory's root node_modules.
-      { from: join(buildPaths.dsh, 'node_modules'), to: 'dsh/node_modules', filter: ['**/*'] },
+      // The Windows 7 track ships the runtime as plain files under
+      // `resources/dsh` instead: its interpreter is a real `node.exe`, and
+      // electron-builder's ASAR unpack matching runs on source paths, so an
+      // `asarUnpack` entry can never cover a tree that lives outside `appDir`.
+      ...(win7.enabled ? [] : [
+        { from: buildPaths.dsh, to: 'dsh', filter: ['**/*'] },
+        // electron-builder excludes a source directory's root node_modules.
+        { from: join(buildPaths.dsh, 'node_modules'), to: 'dsh/node_modules', filter: ['**/*'] },
+      ]),
     ],
-    // The Windows 7 track runs the Host and its skill CLIs on a real `node.exe`,
-    // which has no ASAR support: anything the runtime imports has to be a real
-    // file on disk. Unpacking the whole tree keeps the archive entries (and the
-    // PE verification that reads them) while giving the interpreter readable
-    // paths under `app.asar.unpacked/dsh`.
-    asarUnpack: win7.enabled ? [...unpack, 'dsh/**/*'] : unpack,
+    asarUnpack: unpack,
     extraResources: [
       { from: buildPaths.runtime, to: 'runtime' },
       { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
       // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
       ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),
+      // Real files on disk for the interpreter that has no ASAR support.
+      ...(win7.enabled ? [{ from: buildPaths.dsh, to: 'dsh', filter: ['**/*'] }] : []),
     ],
     mac: {
       icon: fileURLToPath(new URL('../resources/icon-macos.png', import.meta.url)),
@@ -179,14 +182,16 @@ export function createElectronBuilderConfig(
       writeUpdateInfo: false,
     },
     beforePack: async context => {
-      const office = await officePackageDirectories(buildPaths.dsh, { platform: resolvedPlatform, arch: resolvedArch })
-      const patterns = office.map(directory => `**/${relative(buildPaths.dsh, directory).split(sep).join('/')}/**/*`)
-      const existing = context.packager.config.asarUnpack ?? []
-      context.packager.config.asarUnpack = [...(typeof existing === 'string' ? [existing] : existing), ...patterns]
-      if (packagesWindows) windowsCode = await prepareWindowsAsarUnpack(context, buildPaths.dsh)
+      if (!win7.enabled) {
+        const office = await officePackageDirectories(buildPaths.dsh, { platform: resolvedPlatform, arch: resolvedArch })
+        const patterns = office.map(directory => `**/${relative(buildPaths.dsh, directory).split(sep).join('/')}/**/*`)
+        const existing = context.packager.config.asarUnpack ?? []
+        context.packager.config.asarUnpack = [...(typeof existing === 'string' ? [existing] : existing), ...patterns]
+        if (packagesWindows) windowsCode = await prepareWindowsAsarUnpack(context, buildPaths.dsh)
+      }
       if (windowsSigner !== undefined) {
         primaryRuntimeDestination = join(context.appOutDir, 'resources', 'runtime', 'primary-runtime')
-        dshDestination = join(context.appOutDir, 'resources', 'app.asar.unpacked', 'dsh')
+        dshDestination = join(context.appOutDir, 'resources', win7.enabled ? 'dsh' : 'app.asar.unpacked/dsh')
       }
       if (policy === undefined) return
       const { resolveDesktopPolicyConfig } = await import('../lib/types/mandatory-update-policy.js')
@@ -203,8 +208,10 @@ export function createElectronBuilderConfig(
       // release, and a rewritten one for installed-update qualification.
       await verifyDesktopRuntime(buildPaths.dsh,
         preparedRuntimeVersion ?? productVersion, { platform: resolvedPlatform, arch: resolvedArch })
-      // Unsigned Windows builds skip electron-builder's afterSign hook.
-      if (packagesWindows && unsigned) await verifyWindowsAsarUnpack(buildPaths.dsh, resourcesDir, windowsCode)
+      // Unsigned Windows builds skip electron-builder's afterSign hook. The
+      // Windows 7 track keeps no dsh entry in the archive, so there is nothing
+      // to verify there.
+      if (packagesWindows && unsigned && !win7.enabled) await verifyWindowsAsarUnpack(buildPaths.dsh, resourcesDir, windowsCode)
     },
     afterSign: async context => {
       if (windowsSigner !== undefined) {

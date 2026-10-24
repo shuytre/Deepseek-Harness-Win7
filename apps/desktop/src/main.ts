@@ -45,7 +45,7 @@ import { applyTitleBarOverlayCompat, createCompatFetch, loadWin7MainProcessPolyf
 // Promise.withResolvers, AbortSignal.any, structuredClone, fs.globSync and the
 // global fetch stack. The polyfills load before every other product module; on
 // the Win10 track the file is absent and this is a no-op.
-process.env.DSH_WIN7_MODULE_ROOTS = [app.getAppPath(), process.env.DSH_WIN7_MODULE_ROOTS]
+process.env.DSH_WIN7_MODULE_ROOTS = [app.getAppPath(), packagedDshRoot(), process.env.DSH_WIN7_MODULE_ROOTS]
   .filter((value): value is string => typeof value === 'string' && value.length > 0)
   .join(process.platform === 'win32' ? ';' : ':')
 loadWin7MainProcessPolyfills(process.resourcesPath)
@@ -195,14 +195,15 @@ function runtimeResources(): RuntimeResources {
  * Directory the packaged Host and its skill CLIs run from.
  *
  * `app.getAppPath()` points inside `app.asar`, which only Electron's patched `fs`
- * can read. The Windows 7 track starts a real `node.exe`, so its tree is shipped
- * unpacked; when that copy is present it is the only path the interpreter can
- * actually resolve modules from.
+ * can read. The Windows 7 track starts a real `node.exe`, so it ships the tree as
+ * plain files instead: `resources/dsh` for that track, `app.asar.unpacked/dsh`
+ * when a build unpacks it. Whichever real copy exists is the only path the
+ * interpreter can resolve modules from.
  * @returns Absolute directory holding the packaged runtime.
  */
 function packagedDshRoot(): string {
-  const unpacked = join(process.resourcesPath, 'app.asar.unpacked', 'dsh')
-  return existsSync(join(unpacked, 'package.json')) ? unpacked : join(app.getAppPath(), 'dsh')
+  const candidates = [join(process.resourcesPath, 'dsh'), join(process.resourcesPath, 'app.asar.unpacked', 'dsh')]
+  return candidates.find(directory => existsSync(join(directory, 'package.json'))) ?? join(app.getAppPath(), 'dsh')
 }
 
 function developmentPrimaryRuntime(): string {
