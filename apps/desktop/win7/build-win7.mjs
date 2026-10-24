@@ -108,7 +108,11 @@ async function runStep(name, command, options = {}) {
 
 /** Scan the packaged payload for Windows 7-incompatible imports. */
 async function scanPackagedPayload() {
-  const roots = ['win-unpacked', join('win-unpacked', 'resources'), 'win7-unpacked'].map(name => join(BUILD_PATHS_ROOT, name))
+  // Signed builds land in `artifacts/`, unsigned ones in `unsigned-artifacts/`;
+  // both are one level below the target root.
+  const roots = ['win-unpacked', join('win-unpacked', 'resources'), 'win7-unpacked',
+    join('unsigned-artifacts', 'win-unpacked'), join('artifacts', 'win-unpacked')]
+    .map(name => join(BUILD_PATHS_ROOT, name))
   const root = roots.find(candidate => existsSync(candidate))
   if (root === undefined) {
     stepResults.push({ name: 'scan', code: 2, detail: `no packaged application directory under ${BUILD_PATHS_ROOT}` })

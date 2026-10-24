@@ -111,7 +111,9 @@ export function createElectronBuilderConfig(
     },
     productName: 'DeepSeek Harness',
     // Unsigned builds carry their own suffix so a shared file can never pass for a release artifact.
-    artifactName: `deepseek-harness-\${version}-\${os}-\${arch}${unsigned ? '-unsigned' : ''}${win7.enabled ? WIN7_ARTIFACT_SUFFIX : ''}.\${ext}`,
+    // The Windows 7 track publishes `<name>-win7-setup.exe`: its own build script
+    // and the release workflow both select the installer by the `setup` segment.
+    artifactName: `deepseek-harness-\${version}-\${os}-\${arch}${unsigned ? '-unsigned' : ''}${win7.enabled ? `${WIN7_ARTIFACT_SUFFIX}-setup` : ''}.\${ext}`,
     directories: { output: unsigned ? buildPaths.unsignedArtifacts : buildPaths.artifacts },
     // The track pins its own Electron: the workspace dependency stays on the Win10 line.
     ...(win7.enabled ? { electronVersion: win7.electronVersion } : {}),
