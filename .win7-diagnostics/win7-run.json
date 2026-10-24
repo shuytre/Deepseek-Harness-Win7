@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "profile": {
+    "enabled": true,
+    "electronVersion": "22.3.27",
+    "nodeVersion": "16.20.2",
+    "pythonVersion": "3.8.10",
+    "buildHostNodeMajor": 22
+  },
+  "signed": false,
+  "steps": [
+    {
+      "name": "build",
+      "command": "pnpm.cmd run build",
+      "code": 0,
+      "seconds": 304,
+      "log": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\.desktop-build\\win7-build\\build.log"
+    },
+    {
+      "name": "package",
+      "command": "pnpm.cmd --dir apps/desktop run package:win:x64:unsigned",
+      "code": 0,
+      "seconds": 823,
+      "log": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\.desktop-build\\win7-build\\package.log"
+    },
+    {
+      "name": "scan",
+      "code": 0,
+      "detail": "149 PE files scanned, 0 unexpected violations, 56 known third-party imports (document conversion, image processing, file search, terminal, speech)"
+    },
+    {
+      "name": "trace",
+      "code": 0,
+      "detail": "12800 lines; last: 2026-10-24T11:33:44.264Z require: D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\brotli\\decompress.js | 2026-10-24T11:33:44.467Z require: koffi | 2026-10-24T11:33:44.470Z require: @koromix/koffi-win32-x64 | 2026-10-24T11:33:44.471Z dlopen: \\\\?\\D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\@koromix\\koffi-win32-x64\\win32_x64\\koffi.node | 2026-10-24T11:33:44.859Z process exit: 0 | 2026-10-24T11:33:47.879Z process exit: 0"
+    },
+    {
+      "name": "probe",
+      "code": 0,
+      "detail": "191 entries imported, none killed its process",
+      "probes": 191
+    },
+    {
+      "name": "boot-matrix",
+      "code": 2,
+      "detail": "no boot matrix at D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\.desktop-build\\win7-build\\win7-boot-matrix.json"
+    },
+    {
+      "name": "publish",
+      "code": 0,
+      "detail": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\dist\\deepseek-harness-0.2.1-alpha.2-win-x64-unsigned-win7-setup.exe"
+    }
+  ],
+  "installed": [
+    "dist\\deepseek-harness-0.2.1-alpha.2-win-x64-unsigned-win7-setup.exe"
+  ]
+}
