@@ -23,8 +23,11 @@ import { probeEntryImports } from './probe-imports.mjs'
 import { win7Profile } from './profile.mjs'
 
 const REPOSITORY_ROOT = resolve(fileURLToPath(new URL('../../..', import.meta.url)))
+// The step logs live at the repository root so the diagnostics commit sees them,
+// but the packaging pipeline keeps its target tree beside the application it
+// builds: `apps/desktop/.desktop-build/targets/<target>`.
 const RUN_DIRECTORY = join(REPOSITORY_ROOT, '.desktop-build', 'win7-build')
-const BUILD_PATHS_ROOT = join(REPOSITORY_ROOT, '.desktop-build', 'targets', 'win-x64')
+const BUILD_PATHS_ROOT = join(REPOSITORY_ROOT, 'apps', 'desktop', '.desktop-build', 'targets', 'win-x64')
 const DIST_DIRECTORY = join(REPOSITORY_ROOT, 'dist')
 
 const argumentsSet = new Set(process.argv.slice(2))
