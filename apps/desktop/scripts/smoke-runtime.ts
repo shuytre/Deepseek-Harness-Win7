@@ -8,7 +8,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { readPrimaryRuntime, workspaceDependencyPaths } from '../../../packages/skill/tool-workspace-dependencies/src/index.ts'
-import { DesktopHostProcess } from '../src/host-process.ts'
+import { DesktopHostProcess, type DesktopHostReady } from '../src/host-process.ts'
 import { createPluginProfile } from '../src/project-manager.ts'
 import type { DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 
@@ -47,9 +47,15 @@ export async function smokeDesktopRuntime(
     npm_config_userconfig: join(home, 'npmrc'), npm_config_globalconfig: join(home, 'npmrc'),
     npm_config_store_dir: join(home, 'store'), npm_config_enable_global_virtual_store: 'false',
   }
-  const host = new DesktopHostProcess(node, root, profile, undefined, hostEnvironment,
+  // A config change the runtime reports as `restart-required` only takes effect
+  // in a fresh Host, so this smoke owns more than one child process.
+  const createHost = (): DesktopHostProcess => new DesktopHostProcess(node, root, profile, undefined, hostEnvironment,
     undefined, join(resourcesRuntime, 'primary-runtime'),
     { pnpm: join(resourcesRuntime, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resourcesRuntime, 'bin') })
+  const hosts: DesktopHostProcess[] = []
+  const host = createHost()
+  hosts.push(host)
+  let active = host
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     writeFileSync(join(home, 'npmrc'), '')
@@ -166,12 +172,18 @@ export function apply(ctx) {
     manifest.dsh.profile.bundles.push(pluginName)
     writeFileSync(join(profile, 'package.json'), JSON.stringify(manifest))
     writeFileSync(join(profile, 'cordis.patch.yml'), '- id: webserver\n  config:\n    host: 127.0.0.1\n    port: 0\n')
-    const ready = await Promise.race([host.start(), new Promise<never>((_, reject) => {
-      timer = setTimeout(() => { reject(new Error('desktop runtime: Host readiness exceeded 120 seconds')) }, 120_000)
-    })])
-    clearTimeout(timer)
-    const login = await fetch(ready.url, { redirect: 'manual' })
-    const cookie = login.headers.getSetCookie().map(value => value.split(';')[0]).join('; ')
+    let ready: DesktopHostReady
+    let cookie: string
+    const bootHost = async (instance: DesktopHostProcess): Promise<void> => {
+      active = instance
+      ready = await Promise.race([instance.start(), new Promise<never>((_, reject) => {
+        timer = setTimeout(() => { reject(new Error('desktop runtime: Host readiness exceeded 120 seconds')) }, 120_000)
+      })])
+      clearTimeout(timer)
+      const login = await fetch(ready.url, { redirect: 'manual' })
+      cookie = login.headers.getSetCookie().map(value => value.split(';')[0]).join('; ')
+    }
+    await bootHost(host)
     const response = await fetch(new URL('/', ready.url), { headers: { cookie } })
     if (response.status !== 200 || !(await response.text()).includes('<html')) {
       throw new Error('desktop runtime: packaged frontend smoke failed')
@@ -182,21 +194,35 @@ export function apply(ctx) {
       // The smoke plugin injects [webServer, officeToPdf, skills, pluginManager];
       // a service that never appeared leaves the route absent and the reason on
       // the Host's stderr, which is the only place it is written.
-      throw new Error(`desktop runtime: plugin HTTP route failed: ${String(pluginResponse.status)} ${pluginBody.slice(0, 400)}${hostDiagnostics(host)}`)
+      throw new Error(`desktop runtime: plugin HTTP route failed: ${String(pluginResponse.status)} ${pluginBody.slice(0, 400)}${hostDiagnostics(active)}`)
     }
     const installation = await fetch(new URL('/desktop-smoke-install', ready.url), {
       headers: { cookie }, signal: AbortSignal.timeout(120_000),
     })
     const installationResult = await installation.text()
+    if (!installation.ok) {
+      throw new Error(`desktop runtime: bundled pnpm plugin installation failed: ${installationResult}${hostDiagnostics(active)}`)
+    }
+    // Installing a plugin edits the profile, so activation is a config-tree
+    // change. Where the runtime can hot-apply it the route is already up; on the
+    // Windows 7 track HMR needs `--expose-internals`, so the product answers
+    // `application: restart-required` and the route appears only in a new Host.
+    const applied = JSON.parse(installationResult) as { application?: string }
+    if (applied.application === 'restart-required') {
+      await active.stop()
+      const restarted = createHost()
+      hosts.push(restarted)
+      await bootHost(restarted)
+    }
     const installed = await fetch(new URL('/desktop-smoke-installed', ready.url), { headers: { cookie } })
-    if (!installation.ok || !installed.ok || await installed.text() !== 'installed plugin ready') {
-      throw new Error(`desktop runtime: bundled pnpm plugin installation failed: ${installationResult}${hostDiagnostics(host)}`)
+    if (!installed.ok || await installed.text() !== 'installed plugin ready') {
+      throw new Error(`desktop runtime: bundled pnpm plugin installation failed: ${installationResult}${hostDiagnostics(active)}`)
     }
     for (const { extension } of inputs) {
       const converted = await fetch(new URL(`/desktop-smoke-office/${extension}`, ready.url), {
         headers: { cookie }, signal: AbortSignal.timeout(120_000),
       })
-      if (!converted.ok) throw new Error(`desktop runtime: ${extension} conversion failed: ${await converted.text()}${hostDiagnostics(host)}`)
+      if (!converted.ok) throw new Error(`desktop runtime: ${extension} conversion failed: ${await converted.text()}${hostDiagnostics(active)}`)
       const pdf = Buffer.from(await converted.arrayBuffer())
       if (!/^%PDF-\d\.\d/u.test(pdf.subarray(0, 8).toString())
         || !pdf.subarray(-1024).toString().trimEnd().endsWith('%%EOF')) {
@@ -206,7 +232,7 @@ export function apply(ctx) {
     const cliResponse = await fetch(new URL('/desktop-smoke-office-cli', ready.url), {
       headers: { cookie }, signal: AbortSignal.timeout(120_000),
     })
-    if (!cliResponse.ok) throw new Error(`desktop runtime: skill CLI failed: ${await cliResponse.text()}${hostDiagnostics(host)}`)
+    if (!cliResponse.ok) throw new Error(`desktop runtime: skill CLI failed: ${await cliResponse.text()}${hostDiagnostics(active)}`)
     const cliResult = await cliResponse.json() as { capabilities: { runtime: { cliPath: string } }; pdf: string }
     if (!cliResult.capabilities.runtime.cliPath.endsWith('cli.js') || Buffer.from(cliResult.pdf, 'base64').subarray(0, 5).toString() !== '%PDF-') {
       throw new Error('desktop runtime: skill CLI did not return capabilities and a PDF')
@@ -214,7 +240,7 @@ export function apply(ctx) {
     console.log('desktop runtime: DOCX, XLSX, PPTX to PDF and skill CLI discovery passed')
   } finally {
     clearTimeout(timer)
-    try { await host.stop() } finally {
+    try { for (const instance of hosts) await instance.stop() } finally {
       await rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
       await rm(join(root, 'node_modules', 'desktop-runtime-smoke-plugin'), {
         recursive: true, force: true, maxRetries: 20, retryDelay: 50,

@@ -12,6 +12,7 @@
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 import { openSync, writeSync } from 'node:fs'
+import { createRequire } from 'node:module'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const shimDirectory = join(here, 'shims')
@@ -56,7 +57,15 @@ const REDIRECTED = new Map([
 ])
 
 /**
- * Redirect a missing built-in module to its shim.
+ * Redirect a missing built-in module to its shim, and let a bare specifier fall
+ * back to the profile's own `node_modules`.
+ *
+ * Node 16 cannot load `node-addon-require-builtin`, so the runtime's
+ * profile-scoped resolver interception installs nothing here. Without this
+ * fallback, a plugin the user installed into the profile — the only packages
+ * that live outside the dsh installation — cannot be imported at all: the
+ * Loader asks for it by bare name from inside the installation, and Node's own
+ * walk-up never reaches the profile.
  * @param {string} specifier - Requested module specifier.
  * @param {object} context - Node loader context.
  * @param {Function} nextResolve - Downstream resolver.
@@ -65,7 +74,36 @@ const REDIRECTED = new Map([
 export async function resolve(specifier, context, nextResolve) {
   const replacement = REDIRECTED.get(specifier)
   if (replacement !== undefined) return { url: replacement, shortCircuit: true }
-  return nextResolve(specifier, context)
+  try {
+    return await nextResolve(specifier, context)
+  } catch (error) {
+    const fallback = isBareSpecifier(specifier) ? resolveFromProfile(specifier) : undefined
+    if (fallback === undefined) throw error
+    trace(`resolve profile: ${specifier} -> ${fallback}`)
+    return { url: fallback, shortCircuit: true }
+  }
+}
+
+/** Specifiers Node resolves itself by scheme, path or subpath import. */
+function isBareSpecifier(specifier) {
+  return !/^[./#]/u.test(specifier) && !specifier.includes(':')
+}
+
+/** Resolution anchored at the profile the Host was started in; the Host's cwd. */
+let profileRequire
+
+/**
+ * Resolve a specifier the way Node would from the profile's package.json.
+ * @param {string} specifier - Bare package specifier.
+ * @returns Module URL, or undefined when the profile cannot resolve it either.
+ */
+function resolveFromProfile(specifier) {
+  try {
+    profileRequire ??= createRequire(join(process.cwd(), 'package.json'))
+    return pathToFileURL(profileRequire.resolve(specifier)).href
+  } catch {
+    return undefined
+  }
 }
 
 /**
