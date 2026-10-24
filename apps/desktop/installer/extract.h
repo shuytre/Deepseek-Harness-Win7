@@ -23,10 +23,12 @@ struct InstallerAttributes {
     ~InstallerAttributes() { if (list) DeleteProcThreadAttributeList(list); }
     bool Initialize() {
         SIZE_T size = 0;
-        InitializeProcThreadAttributeList(nullptr, 2, 0, &size);
+        // One attribute: the inherited handle list. The job list attribute is Windows 8+ and
+        // fails with ERROR_NOT_SUPPORTED on Windows 7, so the job is assigned after creation.
+        InitializeProcThreadAttributeList(nullptr, 1, 0, &size);
         storage.resize(size);
         auto* candidate = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(storage.data());
-        if (!InitializeProcThreadAttributeList(candidate, 2, 0, &size)) return false;
+        if (!InitializeProcThreadAttributeList(candidate, 1, 0, &size)) return false;
         list = candidate;
         return true;
     }
@@ -54,8 +56,9 @@ static int ExtractApplication(HWND parent, LPCWSTR tool, LPCWSTR archive, LPCWST
     InstallerAttributes attributes;
     if (!attributes.Initialize()) return LaunchFailure(GetLastError());
     HANDLE inherited[] = {nullInput.value, output.value, errors.value};
-    if (!UpdateProcThreadAttribute(attributes.list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited, sizeof(inherited), nullptr, nullptr) ||
-        !UpdateProcThreadAttribute(attributes.list, 0, PROC_THREAD_ATTRIBUTE_JOB_LIST, &job.value, sizeof(job.value), nullptr, nullptr)) return LaunchFailure(GetLastError());
+    // PROC_THREAD_ATTRIBUTE_JOB_LIST is Windows 8+ and answers ERROR_NOT_SUPPORTED on Windows 7,
+    // so the job is assigned to the suspended child below instead.
+    if (!UpdateProcThreadAttribute(attributes.list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited, sizeof(inherited), nullptr, nullptr)) return LaunchFailure(GetLastError());
     STARTUPINFOEXW startup = {};
     startup.StartupInfo.cb = sizeof(startup);
     startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
@@ -68,8 +71,12 @@ static int ExtractApplication(HWND parent, LPCWSTR tool, LPCWSTR archive, LPCWST
     std::wstring command = L"\"" + std::wstring(tool) + L"\" x -y -bso0 -bse2 -bsp1 -bb0 -sccUTF-8 \"-o" + destination + L"\\.\" \"" + archive + L"\"";
     PROCESS_INFORMATION child = {};
     if (!CreateProcessW(tool, &command[0], nullptr, nullptr, TRUE,
-        EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW, nullptr, nullptr, &startup.StartupInfo, &child)) return LaunchFailure(GetLastError());
+        EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, nullptr, &startup.StartupInfo, &child)) return LaunchFailure(GetLastError());
     InstallerHandle process(child.hProcess), thread(child.hThread);
+    // Vista+ and the Windows 7-safe way to keep the job membership; a refusal (for example a
+    // non-nesting job already held by the installer) only costs the kill-on-close guarantee.
+    if (!AssignProcessToJobObject(job.value, child.hProcess)) job.Close();
+    ResumeThread(child.hThread);
     output.Close();
     errors.Close();
     ExtractionProgress progress;

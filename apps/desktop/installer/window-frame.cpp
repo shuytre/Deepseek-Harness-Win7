@@ -155,7 +155,8 @@ static LRESULT CALLBACK ProgressProc(HWND window, UINT message, WPARAM wparam, L
             SolidBrush ink(page->dark ? Color(255, 255, 255, 255) : Color(255, 15, 17, 21));
             FillProgress(graphics, track, 472.0f);
             FillProgress(graphics, ink, 472.0f * static_cast<REAL>(page->progress.value) / 100);
-            FontFamily family(L"Microsoft YaHei UI");
+            // Microsoft YaHei exists on Windows 7; the UI variant does not.
+            FontFamily family(L"Microsoft YaHei");
             Font font(&family, 14, FontStyleRegular, UnitPixel);
             StringFormat centered;
             centered.SetAlignment(StringAlignmentCenter);

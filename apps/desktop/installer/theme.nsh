@@ -14,7 +14,9 @@
 !define INSTALLER_PROGRESS_DIAMETER 4
 !define INSTALLER_STATUS_Y 512
 !define INSTALLER_STATUS_HEIGHT 22
-!define INSTALLER_FONT "Microsoft YaHei UI"
+; Windows 7 ships Microsoft YaHei only; the UI variant appears first in Windows 8.1, and
+; CreateFontW falls back to a bitmap face (jagged edges) when the requested name is absent.
+!define INSTALLER_FONT "Microsoft YaHei"
 !define INSTALLER_BUTTON_FONT_SIZE 16
 !define INSTALLER_STATUS_FONT_SIZE 14
 ; GDI+ ARGB values; GDI text uses COLORREF below.
