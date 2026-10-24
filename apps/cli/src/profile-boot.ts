@@ -307,6 +307,7 @@ function traceEntryImports(hostCtx: Context): void {
   }
   const limit = entryLimit()
   const skipped = skippedEntries()
+  const kept = keptEntries()
   // Entries are mounted by the root group's own `update`, which shadows the
   // tree prototype's.
   const rootGroup = (loader as unknown as { root?: object }).root
@@ -314,8 +315,9 @@ function traceEntryImports(hostCtx: Context): void {
   const originalUpdate = updateOwner.update
   if (typeof originalUpdate === 'function') {
     updateOwner.update = function limitedUpdate(this: unknown, entries: unknown, ...rest: unknown[]): unknown {
-      const kept = Array.isArray(entries) && skipped.size > 0 ? entries.filter(entry => !skipped.has(entryName(entry))) : entries
-      const selected = limit === undefined || !Array.isArray(kept) ? kept : kept.slice(0, limit)
+      const dropped = Array.isArray(entries) && skipped.size > 0 ? entries.filter(entry => !skipped.has(entryName(entry))) : entries
+      const narrowed = Array.isArray(dropped) && kept.size > 0 ? dropped.filter(entry => kept.has(entryName(entry))) : dropped
+      const selected = limit === undefined || !Array.isArray(narrowed) ? narrowed : narrowed.slice(0, limit)
       traceBootStage(`tree.update: ${Array.isArray(selected) ? String(selected.length) : 'n/a'} entries`)
       const result = (originalUpdate as (...args: unknown[]) => unknown).call(this, selected, ...rest)
       if (typeof (result as PromiseLike<unknown> | undefined)?.then === 'function') {
@@ -370,6 +372,21 @@ function entryLimit(): number | undefined {
  */
 function skippedEntries(): Set<string> {
   const raw = process.env.DSH_WIN7_SKIP_ENTRIES
+  if (raw === undefined || raw === '') return new Set()
+  return new Set(raw.split(',').map(value => value.trim()).filter(Boolean))
+}
+
+/**
+ * Rows a diagnostic boot keeps, by plugin specifier.
+ *
+ * The mirror image of {@link skippedEntries}: naming the only rows that may mount
+ * turns "which pair of rows aborts" into a boot, without needing a truncation
+ * count that also drags in every earlier row.
+ * @returns Specifiers to keep, empty (keep everything) unless
+ * `DSH_WIN7_KEEP_ENTRIES` names any.
+ */
+function keptEntries(): Set<string> {
+  const raw = process.env.DSH_WIN7_KEEP_ENTRIES
   if (raw === undefined || raw === '') return new Set()
   return new Set(raw.split(',').map(value => value.trim()).filter(Boolean))
 }

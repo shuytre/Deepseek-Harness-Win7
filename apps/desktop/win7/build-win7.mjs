@@ -267,10 +267,16 @@ function reportBootMatrix() {
     return
   }
   const matrix = JSON.parse(readFileSync(path, 'utf8'))
+  // The native stack is the only line in the report that can name the frame the
+  // breakpoint was raised from, so it travels with the summary instead of waiting
+  // for the full diagnostic archive.
+  const debuggerNote = typeof matrix.debugStack === 'string' && matrix.debugStack !== ''
+    ? ` || debugger: ${matrix.debugStack}`.slice(0, 4000)
+    : ''
   stepResults.push({
     name: 'boot-matrix',
     code: 0,
-    detail: matrix.summary,
+    detail: `${String(matrix.summary)}${debuggerNote}`,
     attempts: Array.isArray(matrix.attempts) ? matrix.attempts.length : 0,
   })
 }

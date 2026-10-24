@@ -2,7 +2,7 @@
 
 import { packagingStep } from './packaging-step.mjs'
 import { spawn } from 'node:child_process'
-import { copyFileSync, cpSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { get } from 'node:https'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join, relative, resolve } from 'node:path'
@@ -193,6 +193,7 @@ interface BootMatrixAttempt {
   readonly traceTail?: string | undefined
   readonly outputTail?: string | undefined
   readonly fatal?: string | undefined
+  readonly wer?: string | undefined
 }
 
 /** Every boot the diagnostic ran, plus the one line that names the finding. */
@@ -200,6 +201,117 @@ interface BootMatrix {
   readonly tracePath: string
   readonly attempts: readonly BootMatrixAttempt[]
   readonly summary: string
+  readonly debugStack?: string | undefined
+}
+
+/** Console debugger that ships with the Windows SDK on the CI image. */
+const DEBUGGER_CANDIDATES = [
+  'C:/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe',
+  'C:/Program Files/Windows Kits/10/Debuggers/x64/cdb.exe',
+]
+
+/**
+ * Boot the tree under a debugger so the native abort prints a stack.
+ *
+ * The breakpoint is raised below V8, so the only witness left is the machine
+ * stack. `g` runs to the exception, `.ecxr` switches to the faulting context and
+ * `kv` prints the frames with their arguments; symbols are not requested because
+ * the symbol server is not reachable from the runner, and a module plus offset is
+ * enough to name the binary that raised the breakpoint.
+ * @param executable - Runtime image to debug.
+ * @param args - Arguments the ordinary boot uses.
+ * @param environment - Environment the ordinary boot uses.
+ * @param cwd - Working directory the ordinary boot uses.
+ * @returns Last lines of the debugger transcript, or undefined when no debugger
+ * is installed or the boot did not fault.
+ */
+function debuggerStack(
+  executable: string, args: readonly string[], environment: Record<string, string | undefined>, cwd: string,
+): Promise<string | undefined> {
+  const debuggerPath = DEBUGGER_CANDIDATES.find(candidate => existsSync(candidate))
+  if (debuggerPath === undefined) return Promise.resolve(undefined)
+  return new Promise((settle) => {
+    let output = ''
+    const collect = (chunk: unknown): void => { output = `${output}${String(chunk)}`.slice(-60_000) }
+    const child = spawn(debuggerPath, ['-g', '-G', '-o', '-c', 'g; .ecxr; kv 24; q', executable, ...args], {
+      cwd, env: environment, windowsHide: true,
+    })
+    const timer = setTimeout(() => { try { child.kill() } catch { /* already gone */ } }, 120_000)
+    child.stdout.on('data', collect)
+    child.stderr.on('data', collect)
+    child.on('error', () => { clearTimeout(timer); settle(undefined) })
+    child.on('close', () => {
+      clearTimeout(timer)
+      const lines = output.trim().split(/\r?\n/).filter(line => line.trim() !== '')
+      settle(lines.length === 0 ? undefined : lines.slice(-40).join(' | ').slice(0, 6000))
+    })
+  })
+}
+
+/** Signature fields worth copying out of a Windows Error Reporting record. */
+const WER_FIELDS = new Set([
+  'Application Name',
+  'Application Version',
+  'Fault Module Name',
+  'Fault Module Version',
+  'Exception Code',
+  'Exception Offset',
+])
+
+/**
+ * Name the module that raised the abort, using the record Windows already wrote.
+ *
+ * A native abort with no JavaScript stack still leaves a `Report.wer` behind, and
+ * that record names the faulting module — which separates "our JavaScript broke the
+ * runtime" from "a shipped native binary broke it". Only a report written after
+ * `since` is considered, so one attempt cannot read the previous attempt's crash.
+ * @param since - Epoch milliseconds the attempt started at.
+ * @returns One-line signature of the newest matching crash, or undefined when the
+ * runtime wrote no record (Windows Error Reporting is often disabled on CI).
+ */
+function recentWerReport(since: number): string | undefined {
+  const programmeData = process.env.ProgramData ?? 'C:/ProgramData'
+  const roots = ['ReportArchive', 'ReportQueue'].map(name => join(programmeData, 'Microsoft', 'Windows', 'WER', name))
+  let newest: { file: string; time: number } | undefined
+  for (const root of roots) {
+    if (!existsSync(root)) continue
+    for (const folder of readdirSync(root)) {
+      const file = join(root, folder, 'Report.wer')
+      try {
+        const time = statSync(file).mtimeMs
+        if (time < since) continue
+        if (newest === undefined || time > newest.time) newest = { file, time }
+      } catch {
+        // Folders in the queue come and go; a missing record is not an error.
+      }
+    }
+  }
+  if (newest === undefined) return undefined
+  try {
+    const raw = readFileSync(newest.file)
+    const text = raw[0] === 0xff && raw[1] === 0xfe ? raw.toString('utf16le') : raw.toString('utf8')
+    const names = new Map<string, string>()
+    const values = new Map<string, string>()
+    for (const line of text.split(/\r?\n/)) {
+      const match = /^(Sig\[\d+\])\.(Name|Value)=(.*)$/.exec(line)
+      if (match === null) continue
+      if (match[2] === 'Name') names.set(match[1], match[3].trim())
+      else values.set(match[1], match[3].trim())
+    }
+    const known: string[] = []
+    const other: string[] = []
+    for (const [index, name] of names) {
+      const value = values.get(index)
+      if (value === undefined || value === '') continue
+      const pair = `${name.replace('Application ', '')}=${value}`
+      if (WER_FIELDS.has(name)) known.push(pair)
+      else other.push(pair)
+    }
+    const parts = known.length > 0 ? known : other.slice(0, 6)
+    return parts.length === 0 ? undefined : parts.join(' ')
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -254,10 +366,15 @@ async function bootMatrix(): Promise<BootMatrix> {
     join(primaryRuntime, 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'),
     join(RUNTIME_ROOT, 'bin'),
   ]
+  // The same launch minus the fatal-error report writer: a report that faults on
+  // its way out replaces the runtime's own message with a silent breakpoint, so
+  // removing it lets an out-of-memory or CHECK failure speak.
+  const argsWithoutReport = args.filter((value, index) => value !== '--report-on-fatalerror' && args[index - 1] !== '--report-directory')
   const attempts: BootMatrixAttempt[] = []
   const boot = async (label: string, extra: {
     entries?: number
     skipped?: readonly string[]
+    keep?: readonly string[]
     args?: readonly string[]
     executable?: string
     ipc?: boolean
@@ -268,7 +385,9 @@ async function bootMatrix(): Promise<BootMatrix> {
     const environment = { ...baseEnvironment, ...(extra.environment ?? {}) }
     if (extra.entries !== undefined) environment.DSH_WIN7_MAX_ENTRIES = String(extra.entries)
     if (extra.skipped !== undefined) environment.DSH_WIN7_SKIP_ENTRIES = extra.skipped.join(',')
+    if (extra.keep !== undefined) environment.DSH_WIN7_KEEP_ENTRIES = extra.keep.join(',')
     process.stdout.write(`desktop runtime: win7 boot probe ${label}\n`)
+    const startedAt = Date.now()
     const result = await probeHostAttempt({
       executable: extra.executable ?? NODE,
       args: extra.args ?? args,
@@ -292,6 +411,7 @@ async function bootMatrix(): Promise<BootMatrix> {
       traceTail: result.traceTail,
       outputTail: result.outputTail,
       fatal: result.fatal,
+      wer: result.verdict === 'booted' ? undefined : recentWerReport(startedAt),
     }
     attempts.push(attempt)
     return attempt
@@ -307,7 +427,39 @@ async function bootMatrix(): Promise<BootMatrix> {
   await boot('control: host flags, trivial script', {
     args: [...args.slice(0, args.indexOf(entry)), controlScript], aliveMs: 2_500, timeoutMs: 15_000,
   })
+  // Two empty plugins on a bare Cordis context mount no product code at all. If
+  // this dies, the abort belongs to the framework on Node 16 rather than to any
+  // row of the config tree, and no plugin narrowing can find it.
+  const minimalTree = join(DSH_OUTPUT_ROOT, 'node_modules', '@deepseek-ai', 'cordis-plugin-loader', 'win7-minimal-tree.mjs')
+  writeFileSync(minimalTree, [
+    "import { writeSync } from 'node:fs'",
+    'const say = text => writeSync(1, `minimal: ${text}\\n`)',
+    'try {',
+    "  const { Context } = await import('@deepseek-ai/cordis')",
+    "  say('cordis loaded')",
+    '  const ctx = new Context()',
+    "  ctx.plugin({ name: 'a', apply() { say('a applied') } })",
+    "  say('a mounted')",
+    "  ctx.plugin({ name: 'b', apply() { say('b applied') } })",
+    "  say('b mounted')",
+    '} catch (error) {',
+    "  say(`failed: ${error && error.stack ? error.stack.split('\\n').slice(0, 4).join(' | ') : error}`)",
+    '}',
+    'setTimeout(() => { say("alive") }, 2000)',
+    '',
+  ].join('\n'))
+  await boot('control: cordis, two plugins', {
+    args: [...args.slice(0, args.indexOf(entry)), minimalTree], aliveMs: 3_500, timeoutMs: 15_000,
+  })
   await boot('whole tree', {})
+  // A fatal-error report that faults on its own way out hides the runtime's
+  // message; without it, an out-of-memory or a CHECK names itself on stderr.
+  await boot('whole tree, no fatal report', { args: argsWithoutReport })
+  // Electron prints a native stack dump on a breakpoint abort when asked; the
+  // JavaScript side has no frame to offer because the failure is below V8.
+  await boot('whole tree, stack dump', {
+    environment: { ELECTRON_ENABLE_STACK_DUMPING: '1', ELECTRON_ENABLE_LOGGING: '1' },
+  })
   // The preload patches `Module._load` and `process.dlopen` only for the trace;
   // turning that off removes both patches and nothing else.
   await boot('whole tree, no require trace', { environment: { DSH_WIN7_TRACE_REQUIRE: '0' } })
@@ -320,24 +472,29 @@ async function bootMatrix(): Promise<BootMatrix> {
   if (commonNode !== undefined) {
     await boot('whole tree on stock Node 16', { executable: commonNode })
   }
-  const one = await boot('first entry only', { entries: 1 })
-  const two = await boot('first two entries', { entries: 2 })
+  await boot('first entry only', { entries: 1 })
+  await boot('first two entries', { entries: 2 })
+  // Truncation always drags in the earlier rows, so a pair test has to name its
+  // two rows instead: with and without the manager says which one is required.
+  await boot('only manager + timer', {
+    keep: ['@deepseek-ai/dsh-plugin-manager', '@deepseek-ai/cordis-plugin-timer'],
+  })
+  await boot('only timer + hmr', {
+    keep: ['@deepseek-ai/cordis-plugin-timer', '@deepseek-ai/dsh-hmr'],
+  })
   // The row the failed trace names last is the one whose mount aborts; dropping it
   // and booting everything else separates "this row is the fault" from "any second
   // row is the fault".
   const timerRow = '@deepseek-ai/cordis-plugin-timer'
   await boot(`whole tree without ${timerRow}`, { skipped: [timerRow] })
-  // A boundary between the mount counts that still boot and the first that dies
-  // names the row without needing the trace to survive the abort.
-  if (one.verdict === 'booted' && two.verdict === 'died') {
-    for (const entries of [4, 8, 16]) {
-      const attempt = await boot(`${String(entries)} entries`, { entries })
-      if (attempt.verdict === 'died') break
-    }
-  }
-  const summary = attempts.map(attempt => `${attempt.label}: ${attempt.verdict}${attempt.code === null ? '' : ` (${String(attempt.code)})`}`).join('; ')
+  // One boot under a debugger, last, because it is the only attempt that can name
+  // the frame that raised the breakpoint.
+  process.stdout.write('desktop runtime: win7 boot probe under debugger\n')
+  const stack = await debuggerStack(NODE, args, baseEnvironment, profileDirectory)
+  process.stdout.write(`desktop runtime: win7 debugger -> ${stack ?? 'not available'}\n`)
+  const summary = attempts.map(attempt => `${attempt.label}: ${attempt.verdict}${attempt.code === null ? '' : ` (${String(attempt.code)})`}${attempt.wer === undefined ? '' : ` {${attempt.wer}}`}`).join('; ')
   process.stdout.write(`desktop runtime: win7 boot matrix -> ${summary}\n`)
-  return { tracePath, attempts, summary }
+  return { tracePath, attempts, summary, debugStack: stack }
 }
 
 
