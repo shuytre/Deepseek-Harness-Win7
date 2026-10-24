@@ -123,7 +123,13 @@ function probeOne(options) {
  * @returns Probe records and a one-line summary.
  */
 export async function probeEntryImports({ electron, dshRoot, compat, tracePath, log, extraArgs = [], limit }) {
-  const specifiers = tracedSpecifiers(tracePath).slice(0, limit)
+  // The packaging smoke's Host appends to the same trace, so its two fixture
+  // rows reach this list. They are never part of a user's boot and their
+  // package is deleted with the smoke's temporary home, so they carry no
+  // verdict about the runtime.
+  const specifiers = tracedSpecifiers(tracePath)
+    .filter(specifier => !/^desktop-(?:runtime|installed)-smoke/u.test(specifier))
+    .slice(0, limit)
   const results = []
   for (const [index, specifier] of specifiers.entries()) {
     const result = await probeOne({ electron, dshRoot, compat, specifier, index, extraArgs })

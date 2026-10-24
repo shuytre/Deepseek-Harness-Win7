@@ -490,6 +490,37 @@ function installExitTrace() {
   process.on('unhandledRejection', (reason) => { traceStage(`unhandled rejection: ${reason}`) })
 }
 
+/**
+ * Make the profile's packages reachable from `require` calls inside the
+ * installation.
+ *
+ * On Node 20+ `node-addon-require-builtin` lets the runtime resolve a plugin
+ * from the profile it belongs to. That package has no Node 16 build, so the
+ * interception installs nothing and a plugin the user installed is invisible to
+ * every `require` made from the installation's own packages. `Module.globalPaths`
+ * is consulted after the ordinary walk-up, so nothing the installation ships is
+ * shadowed and only genuinely missing specifiers reach the profile.
+ */
+function installProfileResolution() {
+  const Module = require('node:module')
+  const { join } = require('node:path')
+  const { existsSync } = require('node:fs')
+  const profileModules = join(process.cwd(), 'node_modules')
+  if (!existsSync(profileModules)) return
+  if (!Module.globalPaths.includes(profileModules)) Module.globalPaths.push(profileModules)
+  const original = Module._resolveFilename
+  if (typeof original !== 'function') return
+  Module._resolveFilename = function profileAwareResolve(request, parent, isMain, options) {
+    try {
+      return original.call(this, request, parent, isMain, options)
+    } catch (error) {
+      if (typeof request !== 'string' || !/^[^./\\#]/u.test(request) || request.includes(':')) throw error
+      return original.call(this, request, parent, isMain, { ...options, paths: [profileModules] })
+    }
+  }
+  traceStage(`require profile: ${profileModules}`)
+}
+
 /** Install every guard that applies to the running runtime. */
 function installWin7Polyfills() {
   globalThis.__DSH_WIN7_TRACE__ = traceStage
@@ -503,6 +534,7 @@ function installWin7Polyfills() {
   installHeartbeat()
   installRequireTrace()
   installDlopenTrace()
+  installProfileResolution()
   installPromiseWithResolvers()
   installAbortSignalHelpers()
   installStructuredClone()

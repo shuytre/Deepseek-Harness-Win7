@@ -56,6 +56,9 @@ const REDIRECTED = new Map([
   ['node:sea', pathToFileURL(join(shimDirectory, 'node-sea.mjs')).href],
 ])
 
+/** Report that the loader is live: a launch that omits `--experimental-loader` traces nothing here. */
+trace(`loader registered (cwd=${process.cwd()})`)
+
 /**
  * Redirect a missing built-in module to its shim, and let a bare specifier fall
  * back to the profile's own `node_modules`.
@@ -78,7 +81,12 @@ export async function resolve(specifier, context, nextResolve) {
     return await nextResolve(specifier, context)
   } catch (error) {
     const fallback = isBareSpecifier(specifier) ? resolveFromProfile(specifier) : undefined
-    if (fallback === undefined) throw error
+    if (fallback === undefined) {
+      // Same text as the failure the caller will see, plus the directory the
+      // profile walk-up would have used when the Host's cwd is not a profile.
+      trace(`resolve miss: ${specifier} ${error?.code ?? ''}`.trimEnd())
+      throw error
+    }
     trace(`resolve profile: ${specifier} -> ${fallback}`)
     return { url: fallback, shortCircuit: true }
   }

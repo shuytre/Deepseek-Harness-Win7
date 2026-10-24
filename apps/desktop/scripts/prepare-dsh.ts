@@ -6,6 +6,7 @@ import { copyFileSync, cpSync, createWriteStream, existsSync, mkdirSync, mkdtemp
 import { get } from 'node:https'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join, relative, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { desktopNodeEnvironment } from '../src/node-environment.ts'
 import { createPluginProfile, createRuntimeProjectMetadata } from '../src/project-manager.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
@@ -378,8 +379,12 @@ async function bootMatrix(): Promise<BootMatrix> {
     DSH_WIN7_TRACE_MIRROR: '0',
     DSH_WIN7_TRACE_FILE: tracePath,
   }
+  const loaderFlag = ['--experimental-loader', pathToFileURL(join(compat, 'loader.mjs')).href]
   const args = [
     '--require', join(compat, 'polyfills.cjs'),
+    // The shipped launch registers the loader; the matrix mirrors it, otherwise
+    // it would keep validating a launch the product no longer performs.
+    ...(existsSync(join(compat, 'loader.mjs')) ? loaderFlag : []),
     '--experimental-json-modules',
     '--report-on-fatalerror',
     '--report-directory', compat,
@@ -390,6 +395,10 @@ async function bootMatrix(): Promise<BootMatrix> {
     join(primaryRuntime, 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'),
     join(RUNTIME_ROOT, 'bin'),
   ]
+  // The same launch minus the experimental ESM loader, which is the one
+  // mechanism that redirects builtins and bridges the profile on Node 16; the
+  // control keeps it honest about whether the loader costs a boot.
+  const argsWithoutLoader = args.filter((value, index) => !loaderFlag.includes(value) && args[index - 1] !== loaderFlag[0])
   // The same launch minus the fatal-error report writer: a report that faults on
   // its way out replaces the runtime's own message with a silent breakpoint, so
   // removing it lets an out-of-memory or CHECK failure speak.
@@ -479,6 +488,10 @@ async function bootMatrix(): Promise<BootMatrix> {
     args: [...args.slice(0, args.indexOf(entry)), minimalTree], aliveMs: 3_500, timeoutMs: 15_000,
   })
   await boot('whole tree', {})
+  // The shipped launch registers the experimental ESM loader; this control
+  // runs the same tree without it, which is also how every earlier round ran
+  // when the loader was still switched off.
+  await boot('whole tree, no esm loader', { args: argsWithoutLoader })
   // The interpreter the package no longer uses, kept side by side: this is the
   // comparison that decides whether the switch is what fixes the boot.
   await boot('whole tree on Electron node', { executable: NODE })
