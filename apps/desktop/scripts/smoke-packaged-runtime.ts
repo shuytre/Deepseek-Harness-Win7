@@ -1,5 +1,5 @@
 /** Validate the assembled application, including native Office conversion outside ASAR. */
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
@@ -26,4 +26,15 @@ if (windows && !values.unsigned) await verifyWindowsCode(application)
 const packedDsh = join(resources, 'app.asar', 'dsh')
 const dshCandidates = [join(resources, 'dsh'), join(resources, 'app.asar.unpacked', 'dsh')]
 const dsh = dshCandidates.find(directory => existsSync(join(directory, 'package.json'))) ?? packedDsh
+// The Host CLI is the first thing every packaged smoke starts; when it is absent,
+// name what the shipped tree actually holds so the failure is diagnosable.
+const hostCli = join(dsh, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js')
+if (!existsSync(hostCli)) {
+  const hostPackage = join(dsh, 'node_modules', '@deepseek-ai', 'dsh-desktop-host')
+  process.stderr.write(`desktop package: missing ${hostCli}\n`)
+  for (const directory of [join(dsh, 'node_modules', '@deepseek-ai'), hostPackage, join(hostPackage, 'lib')]) {
+    process.stderr.write(`desktop package: ${directory} -> ${existsSync(directory) ? JSON.stringify(readdirSync(directory).slice(0, 40)) : 'absent'}\n`)
+  }
+  throw new Error('desktop package: the shipped runtime omits the Host CLI')
+}
 await smokePreparedRuntime(dsh, executable, join(resources, 'runtime'), descriptor)

@@ -1,7 +1,7 @@
 import { officePackageDirectories } from '../../../scripts/libreoffice-packages.mjs'
 import { X509Certificate } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { cp, readFile } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
@@ -157,8 +157,10 @@ export function createElectronBuilderConfig(
       { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
       // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
       ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),
-      // Real files on disk for the interpreter that has no ASAR support.
-      ...(win7.enabled ? [{ from: buildPaths.dsh, to: 'dsh', filter: ['**/*'] }] : []),
+      // Real files on disk for the interpreter that has no ASAR support. The copy
+      // is made in `afterPack`: electron-builder's own `extraResources` copy runs
+      // its matcher on source paths and its destination mapping is relative to
+      // `appDir`, which loses files for a tree that lives under `.desktop-build`.
     ],
     mac: {
       icon: fileURLToPath(new URL('../resources/icon-macos.png', import.meta.url)),
@@ -208,6 +210,17 @@ export function createElectronBuilderConfig(
       // release, and a rewritten one for installed-update qualification.
       await verifyDesktopRuntime(buildPaths.dsh,
         preparedRuntimeVersion ?? productVersion, { platform: resolvedPlatform, arch: resolvedArch })
+      // The Windows 7 track hands its runtime tree to a real `node.exe`, which cannot read inside
+      // ASAR, so the tree ships as plain files beside the archive. The copy is explicit: the
+      // builder's own resource matching works on source paths outside `appDir` and silently drops
+      // entries for this layout. The packaged copy is then verified file by file against the same
+      // manifest, so a lost file fails the build instead of the first launch.
+      if (win7.enabled) {
+        const shipped = join(resourcesDir, 'dsh')
+        await cp(buildPaths.dsh, shipped, { recursive: true, dereference: true, force: true })
+        await verifyDesktopRuntime(shipped, preparedRuntimeVersion ?? productVersion,
+          { platform: resolvedPlatform, arch: resolvedArch })
+      }
       // Unsigned Windows builds skip electron-builder's afterSign hook. The
       // Windows 7 track keeps no dsh entry in the archive, so there is nothing
       // to verify there.
