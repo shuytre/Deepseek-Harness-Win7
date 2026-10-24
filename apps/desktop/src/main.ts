@@ -187,8 +187,22 @@ function runtimeResources(): RuntimeResources {
     ?? (development ? join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'pnpm.mjs')
       : join(process.resourcesPath, 'runtime', 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'))
   const dsh = (development ? process.env.DSH_DESKTOP_DSH_DIR : undefined)
-    ?? (development ? join(app.getAppPath(), '.desktop-build', 'development', 'project') : join(app.getAppPath(), 'dsh'))
+    ?? (development ? join(app.getAppPath(), '.desktop-build', 'development', 'project') : packagedDshRoot())
   return { node, nodeBin, pnpm, dsh }
+}
+
+/**
+ * Directory the packaged Host and its skill CLIs run from.
+ *
+ * `app.getAppPath()` points inside `app.asar`, which only Electron's patched `fs`
+ * can read. The Windows 7 track starts a real `node.exe`, so its tree is shipped
+ * unpacked; when that copy is present it is the only path the interpreter can
+ * actually resolve modules from.
+ * @returns Absolute directory holding the packaged runtime.
+ */
+function packagedDshRoot(): string {
+  const unpacked = join(process.resourcesPath, 'app.asar.unpacked', 'dsh')
+  return existsSync(join(unpacked, 'package.json')) ? unpacked : join(app.getAppPath(), 'dsh')
 }
 
 function developmentPrimaryRuntime(): string {

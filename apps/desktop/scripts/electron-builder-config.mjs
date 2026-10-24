@@ -145,7 +145,12 @@ export function createElectronBuilderConfig(
       // electron-builder excludes a source directory's root node_modules.
       { from: join(buildPaths.dsh, 'node_modules'), to: 'dsh/node_modules', filter: ['**/*'] },
     ],
-    asarUnpack: unpack,
+    // The Windows 7 track runs the Host and its skill CLIs on a real `node.exe`,
+    // which has no ASAR support: anything the runtime imports has to be a real
+    // file on disk. Unpacking the whole tree keeps the archive entries (and the
+    // PE verification that reads them) while giving the interpreter readable
+    // paths under `app.asar.unpacked/dsh`.
+    asarUnpack: win7.enabled ? [...unpack, 'dsh/**/*'] : unpack,
     extraResources: [
       { from: buildPaths.runtime, to: 'runtime' },
       { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },

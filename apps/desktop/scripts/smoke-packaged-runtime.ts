@@ -1,4 +1,5 @@
 /** Validate the assembled application, including native Office conversion outside ASAR. */
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
@@ -19,4 +20,9 @@ const executable = windows ? join(application, 'DeepSeek Harness.exe') : join(ap
 const descriptor = await verifyDesktopRuntime(paths.dsh, readDesktopRuntime(paths.dsh).release.version,
   resolveDesktopPackageTarget(target))
 if (windows && !values.unsigned) await verifyWindowsCode(application)
-await smokePreparedRuntime(join(resources, 'app.asar', 'dsh'), executable, join(resources, 'runtime'), descriptor)
+// The Windows 7 track unpacks the whole runtime for its real `node.exe`, which
+// cannot read inside `app.asar`; smoke the tree the application itself launches.
+const packedDsh = join(resources, 'app.asar', 'dsh')
+const unpackedDsh = join(resources, 'app.asar.unpacked', 'dsh')
+await smokePreparedRuntime(existsSync(join(unpackedDsh, 'package.json')) ? unpackedDsh : packedDsh,
+  executable, join(resources, 'runtime'), descriptor)
