@@ -20,6 +20,29 @@ export * from './errors.ts'
 export * from './identity.ts'
 export * from './types.ts'
 
+/** Filesystem codes the LibreOffice kit can raise only while deleting its scratch tree. */
+const CLEANUP_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'ENOTEMPTY', 'EEXIST', 'ENOENT', 'ENOTDIR'])
+
+/** Whether a rejection contains nothing but scratch-directory removal errors. */
+function isCleanupOnlyFailure(cause: unknown, depth = 1): boolean {
+  if (!(cause instanceof AggregateError)) {
+    if (depth <= 0 || typeof cause !== 'object' || cause === null || !('cause' in cause)) return false
+    return isCleanupOnlyFailure((cause as { cause?: unknown }).cause, depth - 1)
+  }
+  const errors: unknown[] = cause.errors
+  if (errors.length === 0) return false
+  return errors.every(error => typeof error === 'object' && error !== null && 'code' in error
+    && CLEANUP_CODES.has(String((error as { code: unknown }).code)))
+}
+
+/** Delete a provider-owned scratch tree, tolerating transient Windows handle locks. */
+async function removeBestEffort(directory: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try { await rm(directory, { recursive: true, force: true }); return }
+    catch { await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1))) }
+  }
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Shared Office conversion and authorized workspace-file rendering. */
@@ -236,6 +259,7 @@ export class OfficeToPdf extends TypertRemoteService {
     if (slot === undefined) { slot = { busy: false }; this.slots.push(slot) }
     slot.busy = true
     let directory: string | undefined
+    let outputPath: string | undefined
     try {
       if (slot.converter === undefined) {
         slot.converter = createConverter(this.options).catch((error: unknown) => {
@@ -247,7 +271,7 @@ export class OfficeToPdf extends TypertRemoteService {
       signal.throwIfAborted()
       directory = await mkdtemp(join(tmpdir(), 'dsh-office-to-pdf-'))
       const inputPath = join(directory, `source.${extension}`)
-      const outputPath = join(directory, 'converted.pdf')
+      outputPath = join(directory, 'converted.pdf')
       await writeFile(inputPath, bytes, { flag: 'wx', mode: 0o600, signal })
       signal.throwIfAborted()
       const result = await converter.render({ inputPath, outputPath }, signal)
@@ -263,6 +287,14 @@ export class OfficeToPdf extends TypertRemoteService {
     } catch (cause) {
       signal.throwIfAborted()
       if (cause instanceof OfficeToPdfError) throw cause
+      // The kit finalizes the PDF before it removes its scratch profile. On Windows a
+      // lingering LibreOffice profile handle can fail that removal with EPERM, which the
+      // kit reports as an AggregateError that carries no conversion failure at all.
+      // Keep the finished PDF instead of reporting a bogus conversion error.
+      if (isCleanupOnlyFailure(cause, 2) && outputPath !== undefined) {
+        const pdf = await readPdf(outputPath, this.config.maxOutputBytes, signal).catch(() => undefined)
+        if (pdf !== undefined) return { pdf, missingFonts: [] }
+      }
       const code = typeof cause === 'object' && cause !== null && 'code' in cause ? cause.code : undefined
       switch (code) {
         case 'input-too-large': case 'output-too-large': case 'invalid-document': case 'unsupported-format':
@@ -271,7 +303,7 @@ export class OfficeToPdf extends TypertRemoteService {
         default: throw new OfficeToPdfError('failed', 'LibreOffice conversion failed.', { cause })
       }
     } finally {
-      try { if (directory !== undefined) await rm(directory, { recursive: true, force: true }) }
+      try { if (directory !== undefined) await removeBestEffort(directory) }
       finally { slot.busy = false }
     }
   }
