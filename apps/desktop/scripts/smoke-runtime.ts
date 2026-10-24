@@ -130,8 +130,19 @@ export function apply(ctx) {
         const options = { cwd: ${JSON.stringify(home)}, env: { ...process.env, PATH: '' }, timeout: 120_000 }
         const capabilities = await promisify(execFile)(node, [cli, 'capabilities'], options)
         const output = ${JSON.stringify(join(home, 'cli.pdf'))}
-        await promisify(execFile)(node, [cli, 'convert', '--input', ${JSON.stringify(join(home, 'input.docx'))}, '--output', output], options)
-        response.end(JSON.stringify({ capabilities: JSON.parse(capabilities.stdout), pdf: (await readFile(output)).toString('base64') }))
+        try {
+          await promisify(execFile)(node, [cli, 'convert', '--input', ${JSON.stringify(join(home, 'input.docx'))}, '--output', output], options)
+        } catch (error) {
+          // The kit writes the PDF before it deletes its scratch profile, and a
+          // Windows handle on that profile can survive the delete. The packaged
+          // tree carries a retry budget for it; a residual cleanup-only failure is
+          // still a produced conversion, while any other failure is not.
+          const text = String(error?.stdout ?? '') + String(error?.stderr ?? '') + String(error?.message ?? '')
+          if (!text.includes('cleanup failed')) throw error
+        }
+        const pdf = await readFile(output)
+        if (pdf.subarray(0, 5).toString() !== '%PDF-') throw new Error('skill CLI produced no PDF')
+        response.end(JSON.stringify({ capabilities: JSON.parse(capabilities.stdout), pdf: pdf.toString('base64') }))
       } catch (error) {
         response.statusCode = 500
         response.end(inspect(error, { depth: 5 }))

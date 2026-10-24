@@ -28,6 +28,7 @@ import { probeHostAttempt } from '../win7/probe-host-boot.mjs'
 import extractZip from 'extract-zip'
 import { probeEntryImports } from '../win7/probe-imports.mjs'
 import { stripJsonImportAttributesInTree } from '../win7/strip-json-import-attributes.mjs'
+import { addLibreOfficeCleanupRetriesInTree } from '../win7/patch-libreoffice-cleanup.mjs'
 import { WIN7_COMPAT_DIRECTORY, win7Profile } from '../win7/profile.mjs'
 import { writeDesktopRuntime, verifyDesktopRuntime } from '../src/runtime-tree.ts'
 import {
@@ -604,6 +605,14 @@ async function main(): Promise<void> {
       await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:win7-json-attributes', async () => {
         const outcome = stripJsonImportAttributesInTree(join(DSH_OUTPUT_ROOT, 'node_modules'), line => process.stdout.write(`${line}\n`))
         process.stdout.write(`desktop runtime: json import attributes removed in ${String(outcome.files)} files\n`)
+      })
+      // The kit removes its scratch profile with `fs.rm` and no retry budget, so
+      // the first `EPERM` from a still-open `profile/Documents` handle loses a
+      // conversion that already produced its PDF. Retries are a documented fs
+      // option; the packaged tree is the only place that can carry them.
+      await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:win7-cleanup-retries', async () => {
+        const outcome = addLibreOfficeCleanupRetriesInTree(join(DSH_OUTPUT_ROOT, 'node_modules'), line => process.stdout.write(`${line}\n`))
+        process.stdout.write(`desktop runtime: cleanup retries added to ${String(outcome.patched)} removals in ${String(outcome.files)} files\n`)
       })
     }
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:manifests', () => prepareRuntimeManifests(DSH_OUTPUT_ROOT))
