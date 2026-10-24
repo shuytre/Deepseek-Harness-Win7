@@ -52,6 +52,15 @@ export function resolveChildWin7Compat(primaryRuntime: string): Win7ChildCompat 
       DSH_WIN7_COMPAT_DIR: directory,
       DSH_WIN7_MODULE_ROOTS: '',
       DSH_WIN7_TRACE_REQUIRE: '1',
+      // Flags reach only this process, but the Host starts further Node children
+      // of its own: the bundled skill CLIs (`libreoffice-kit/lib/cli.js` and its
+      // peers) run on the same Node 16 and call `AbortSignal.any`, which does not
+      // exist before Node 20. `NODE_OPTIONS` is the only channel that follows the
+      // whole descendant tree, so every Node child inherits the polyfills. The
+      // preload is idempotent, which keeps the double load on the Host itself
+      // harmless.
+      NODE_OPTIONS: [process.env.NODE_OPTIONS?.trim(), `--require "${join(directory, 'polyfills.cjs')}"`]
+        .filter(entry => entry !== undefined && entry !== '').join(' '),
       // One ordered trace across the preload, the loader thread and the product
       // modules: the Host's stderr is a separately buffered Windows pipe that a
       // native abort truncates. The packaging orchestrator names the file, so
