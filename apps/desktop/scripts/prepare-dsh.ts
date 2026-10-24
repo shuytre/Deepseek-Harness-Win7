@@ -314,10 +314,13 @@ function recentWerReport(since: number): string | undefined {
     const names = new Map<string, string>()
     const values = new Map<string, string>()
     for (const line of text.split(/\r?\n/)) {
-      const match = /^(Sig\[\d+\])\.(Name|Value)=(.*)$/.exec(line)
+      const match = /^Sig\[(\d+)\]\.(Name|Value)=(.*)$/.exec(line)
       if (match === null) continue
-      if (match[2] === 'Name') names.set(match[1], match[3].trim())
-      else values.set(match[1], match[3].trim())
+      const index = match[1]
+      const value = (match[3] ?? '').trim()
+      if (index === undefined) continue
+      if (match[2] === 'Name') names.set(index, value)
+      else values.set(index, value)
     }
     const known: string[] = []
     const other: string[] = []
