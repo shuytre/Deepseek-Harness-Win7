@@ -306,6 +306,7 @@ function traceEntryImports(hostCtx: Context): void {
     return
   }
   const limit = entryLimit()
+  const skipped = skippedEntries()
   // Entries are mounted by the root group's own `update`, which shadows the
   // tree prototype's.
   const rootGroup = (loader as unknown as { root?: object }).root
@@ -313,7 +314,8 @@ function traceEntryImports(hostCtx: Context): void {
   const originalUpdate = updateOwner.update
   if (typeof originalUpdate === 'function') {
     updateOwner.update = function limitedUpdate(this: unknown, entries: unknown, ...rest: unknown[]): unknown {
-      const selected = limit === undefined || !Array.isArray(entries) ? entries : entries.slice(0, limit)
+      const kept = Array.isArray(entries) && skipped.size > 0 ? entries.filter(entry => !skipped.has(entryName(entry))) : entries
+      const selected = limit === undefined || !Array.isArray(kept) ? kept : kept.slice(0, limit)
       traceBootStage(`tree.update: ${Array.isArray(selected) ? String(selected.length) : 'n/a'} entries`)
       const result = (originalUpdate as (...args: unknown[]) => unknown).call(this, selected, ...rest)
       if (typeof (result as PromiseLike<unknown> | undefined)?.then === 'function') {
@@ -357,6 +359,33 @@ function entryLimit(): number | undefined {
   if (raw === undefined || raw === '') return undefined
   const parsed = Number.parseInt(raw, 10)
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined
+}
+
+/**
+ * Rows a diagnostic boot leaves out, by plugin specifier.
+ *
+ * Every row imports alone, so the abort needs a mount. Dropping one named row and
+ * booting the rest says whether that row's activation is what kills the process.
+ * @returns Specifiers to drop, empty unless `DSH_WIN7_SKIP_ENTRIES` names any.
+ */
+function skippedEntries(): Set<string> {
+  const raw = process.env.DSH_WIN7_SKIP_ENTRIES
+  if (raw === undefined || raw === '') return new Set()
+  return new Set(raw.split(',').map(value => value.trim()).filter(Boolean))
+}
+
+/**
+ * Read the plugin specifier out of one config-tree row.
+ * @param entry - Row as the Loader's `update` receives it.
+ * @returns The specifier, or an empty string when the row is not an object with a name.
+ */
+function entryName(entry: unknown): string {
+  if (typeof entry === 'string') return entry
+  if (typeof entry === 'object' && entry !== null && 'name' in entry) {
+    const name = (entry as { name?: unknown }).name
+    return typeof name === 'string' ? name : ''
+  }
+  return ''
 }
 
 export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Context; shutdown: ProcessShutdown }> {

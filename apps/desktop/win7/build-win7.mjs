@@ -254,6 +254,27 @@ function findElectron() {
   return conventional
 }
 
+/**
+ * Surface the boot matrix in the run report.
+ *
+ * The matrix is written while the runtime still exists; its verdicts name which
+ * mount aborts, and the run report is what a blocked failure can read back.
+ */
+function reportBootMatrix() {
+  const path = join(RUN_DIRECTORY, 'win7-boot-matrix.json')
+  if (!existsSync(path)) {
+    stepResults.push({ name: 'boot-matrix', code: 2, detail: `no boot matrix at ${path}` })
+    return
+  }
+  const matrix = JSON.parse(readFileSync(path, 'utf8'))
+  stepResults.push({
+    name: 'boot-matrix',
+    code: 0,
+    detail: matrix.summary,
+    attempts: Array.isArray(matrix.attempts) ? matrix.attempts.length : 0,
+  })
+}
+
 async function main() {
   const profile = win7Profile(PACKAGING_ENVIRONMENT)
   process.stdout.write(`[win7] profile: Electron ${profile.electronVersion}, Node ${profile.nodeVersion}, Python ${profile.pythonVersion}\n`)
@@ -272,6 +293,7 @@ async function main() {
   if (!skipScan) await scanPackagedPayload()
   collectBootTrace()
   await probeEntryImportsFromTrace()
+  reportBootMatrix()
   const published = publishArtifacts()
   writeFileSync(join(RUN_DIRECTORY, 'win7-run.json'), `${JSON.stringify({
     schemaVersion: 1,
