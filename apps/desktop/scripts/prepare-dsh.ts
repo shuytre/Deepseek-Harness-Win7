@@ -2,7 +2,8 @@
 
 import { packagingStep } from './packaging-step.mjs'
 import { spawn } from 'node:child_process'
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { get } from 'node:https'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join, relative, resolve } from 'node:path'
 import { desktopNodeEnvironment } from '../src/node-environment.ts'
@@ -23,6 +24,7 @@ import { prepareRuntimeManifests } from './prepare-runtime-manifests.ts'
 import { prepareRuntimePatches, verifyRuntimePatches } from './prepare-runtime-patches.ts'
 import { desktopRuntimeOverrides } from './runtime-patch-policy.ts'
 import { probeHostAttempt } from '../win7/probe-host-boot.mjs'
+import extractZip from 'extract-zip'
 import { probeEntryImports } from '../win7/probe-imports.mjs'
 import { stripJsonImportAttributesInTree } from '../win7/strip-json-import-attributes.mjs'
 import { WIN7_COMPAT_DIRECTORY, win7Profile } from '../win7/profile.mjs'
@@ -119,6 +121,66 @@ function runPnpm(args: readonly string[]): Promise<void> {
   })
 }
 
+/**
+ * Stream one HTTPS resource to a file, following redirects.
+ * @param url - Absolute HTTPS URL.
+ * @param destination - File to write.
+ */
+function downloadFile(url: string, destination: string): Promise<void> {
+  return new Promise((resolvePromise, reject) => {
+    get(url, (response) => {
+      const status = response.statusCode ?? 0
+      const location = response.headers.location
+      if ([301, 302, 307, 308].includes(status) && location !== undefined) {
+        response.resume()
+        downloadFile(new URL(location, url).href, destination).then(resolvePromise, reject)
+        return
+      }
+      if (status !== 200) {
+        response.resume()
+        reject(new Error(`GET ${url} answered ${String(status)}`))
+        return
+      }
+      const file = createWriteStream(destination)
+      response.pipe(file)
+      file.on('finish', () => { file.close(() => { resolvePromise() }) })
+      file.on('error', reject)
+    }).on('error', reject)
+  })
+}
+
+/**
+ * Fetch a stock Node 16 build to compare against the runtime's own binary.
+ *
+ * The Host runs on the Electron binary in Node mode, which carries Chromium and
+ * Electron's own Node patches; the crash has no JavaScript stack and no Node fatal
+ * report, so the binary is a variable worth removing. Best-effort: a failed
+ * download only drops the comparison boot.
+ * @returns Absolute path to `node.exe`, or undefined when it cannot be fetched.
+ */
+async function downloadCommonNode(): Promise<string | undefined> {
+  const directory = join(BUILD_PATHS.downloads, 'node-v16.20.2-win-x64')
+  const executable = join(directory, 'node.exe')
+  if (existsSync(executable)) return executable
+  try {
+    mkdirSync(directory, { recursive: true })
+    const archive = join(BUILD_PATHS.downloads, 'node-v16.20.2-win-x64.zip')
+    if (!existsSync(archive)) {
+      await downloadFile('https://nodejs.org/dist/v16.20.2/node-v16.20.2-win-x64.zip', archive)
+    }
+    await extractZip(archive, { dir: directory })
+    const nested = join(directory, 'node-v16.20.2-win-x64', 'node.exe')
+    if (existsSync(nested)) {
+      cpSync(nested, executable)
+      return executable
+    }
+    return existsSync(executable) ? executable : undefined
+  } catch (error) {
+    process.stdout.write(`desktop runtime: no stock Node 16 to compare against: ${String(error)}\n`)
+    return undefined
+  }
+}
+
 /** One boot in the matrix: a single varying input, and what the boot proved. */
 interface BootMatrixAttempt {
   readonly label: string
@@ -197,6 +259,7 @@ async function bootMatrix(): Promise<BootMatrix> {
     entries?: number
     skipped?: readonly string[]
     args?: readonly string[]
+    executable?: string
     ipc?: boolean
     aliveMs?: number
     timeoutMs?: number
@@ -207,7 +270,7 @@ async function bootMatrix(): Promise<BootMatrix> {
     if (extra.skipped !== undefined) environment.DSH_WIN7_SKIP_ENTRIES = extra.skipped.join(',')
     process.stdout.write(`desktop runtime: win7 boot probe ${label}\n`)
     const result = await probeHostAttempt({
-      executable: NODE,
+      executable: extra.executable ?? NODE,
       args: extra.args ?? args,
       environment,
       projectDir: profileDirectory,
@@ -239,12 +302,24 @@ async function bootMatrix(): Promise<BootMatrix> {
   writeFileSync(controlScript, "setTimeout(() => { process.stdout.write('control alive\\n') }, 3000)\n")
   const polyfills = join(compat, 'polyfills.cjs')
   await boot('control: polyfills + ipc', { args: ['--require', polyfills, controlScript], aliveMs: 2_500, timeoutMs: 15_000 })
-  await boot('control: no preload, ipc', { args: [controlScript], aliveMs: 2_500, timeoutMs: 15_000 })
-  await boot('control: polyfills, no ipc', { args: ['--require', polyfills, controlScript], ipc: false, aliveMs: 2_500, timeoutMs: 15_000 })
+  // Same flags as the real boot, with a script that only sleeps: this separates
+  // the launch configuration from the application running under it.
+  await boot('control: host flags, trivial script', {
+    args: [...args.slice(0, args.indexOf(entry)), controlScript], aliveMs: 2_500, timeoutMs: 15_000,
+  })
   await boot('whole tree', {})
+  // The preload patches `Module._load` and `process.dlopen` only for the trace;
+  // turning that off removes both patches and nothing else.
+  await boot('whole tree, no require trace', { environment: { DSH_WIN7_TRACE_REQUIRE: '0' } })
   // The preload replaces globals, patches builtin module objects and installs a
   // fetch stack; keeping only what a module needs to load tests that set.
   await boot('whole tree, minimal polyfills', { environment: { DSH_WIN7_POLYFILLS: 'none' } })
+  // A beat every 25 ms makes the abort's own clock readable.
+  await boot('whole tree, heartbeat', { environment: { DSH_WIN7_HEARTBEAT: '1', DSH_WIN7_TRACE_REQUIRE: '0' } })
+  const commonNode = await downloadCommonNode()
+  if (commonNode !== undefined) {
+    await boot('whole tree on stock Node 16', { executable: commonNode })
+  }
   const one = await boot('first entry only', { entries: 1 })
   const two = await boot('first two entries', { entries: 2 })
   // The row the failed trace names last is the one whose mount aborts; dropping it

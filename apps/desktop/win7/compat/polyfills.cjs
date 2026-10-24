@@ -443,6 +443,24 @@ function installDlopenTrace() {
   }
 }
 
+/**
+ * Beat once per interval so a native abort's own clock is visible in the trace.
+ *
+ * A silent abort leaves no statement behind, only the stage that happened to be
+ * running; a beat every 25 ms turns that into "the loop was live up to here" and
+ * "the loop stopped working at here", which are different faults.
+ */
+function installHeartbeat() {
+  if (process.env.DSH_WIN7_HEARTBEAT !== '1') return
+  const started = Date.now()
+  let beat = 0
+  const timer = setInterval(() => {
+    beat += 1
+    traceStage(`heartbeat ${beat} at ${Date.now() - started}ms rss=${Math.round(process.memoryUsage().rss / 1000000)}MB`)
+  }, 25)
+  if (typeof timer.unref === 'function') timer.unref()
+}
+
 /** Record a graceful end of the process, so an abort is distinguishable from an exit. */
 function installExitTrace() {
   if (process.env.DSH_WIN7_TRACE_REQUIRE !== '1') return
@@ -461,6 +479,7 @@ function installWin7Polyfills() {
   installWebStreams()
   if (minimal) return { node: process.versions.node, fetch: false, webSocket: false }
   installExitTrace()
+  installHeartbeat()
   installRequireTrace()
   installDlopenTrace()
   installPromiseWithResolvers()
