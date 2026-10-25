@@ -341,6 +341,9 @@ async function main() {
   await probeEntryImportsFromTrace()
   reportBootMatrix()
   const published = publishArtifacts()
+  // The installer itself is run: a silent install that completes and leaves
+  // the application and its runtime in place is an installation that works.
+  await runStep('install-check', ['node', join('apps', 'desktop', 'win7', 'probe', 'check-installation.mjs')])
   writeFileSync(join(RUN_DIRECTORY, 'win7-run.json'), `${JSON.stringify({
     schemaVersion: 1,
     profile,
