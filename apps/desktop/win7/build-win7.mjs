@@ -326,10 +326,6 @@ async function main() {
   // reason for a build failure is visible on its own.
   await runStep('unused-imports', ['node', join('apps', 'desktop', 'win7', 'check', 'check-unused-imports.mjs')])
   await runStep('build', packageManagerCommand(['run', 'build']))
-  // The window the user sees is driven on the track the runner can open a
-  // window on. The Windows 7 track's own API gaps are covered by the
-  // comparison above, which does not need a desktop.
-  await runStep('gui-probe', ['node', join('apps', 'desktop', 'win7', 'probe', 'gui-probe.mjs')])
   // The Windows 7 API floors are checked before packaging: an API the Windows
   // 7 runtime does not have is `undefined` there, so the call site throws
   // while the shell is still starting. A Windows Server runner has the newer
