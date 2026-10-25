@@ -142,6 +142,8 @@ jobs:
             .desktop-build/win7-build/probe/probe.log
             .desktop-build/win7-build/probe/fatal.log
             .desktop-build/win7-build/probe/win7-trace.log
+            .desktop-build/win7-build/probe/page.json
+            .desktop-build/win7-build/probe/window.png
           if-no-files-found: warn
 
       - name: Upload build logs on failure

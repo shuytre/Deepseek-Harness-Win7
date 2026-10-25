@@ -21,6 +21,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { connect, findPageTarget } from './devtools-client.mjs'
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
 // The probe lives in `apps/desktop/win7/probe`, so the repository root is
@@ -73,7 +74,8 @@ const diagnosticFile = join(PROBE_DIRECTORY, 'fatal.log')
 if (existsSync(reportFile)) writeFileSync(reportFile, '')
 
 const timeoutMs = Number(process.env.DSH_WIN7_PROBE_TIMEOUT_MS ?? 240_000)
-const child = spawn(executable, [], {
+const debugPort = Number(process.env.DSH_WIN7_PROBE_DEBUG_PORT ?? 9222)
+const child = spawn(executable, [`--remote-debugging-port=${String(debugPort)}`], {
   cwd: packaged,
   env: {
     ...process.env,
@@ -134,6 +136,73 @@ while (Date.now() < deadline) {
   await new Promise(resolve => setTimeout(resolve, 1000))
 }
 
+/**
+ * Use the application the way a user does.
+ *
+ * The window is inspected through the DevTools protocol: the rendered
+ * document is read, a picture of it is taken, and the controls it offers
+ * are listed. A window that opens but renders nothing is a failure the
+ * start-up report alone would not show.
+ * @returns The findings of the interaction.
+ */
+async function useApplication() {
+  const findings = []
+  let target
+  const connectDeadline = Date.now() + 60_000
+  while (Date.now() < connectDeadline) {
+    try {
+      target = await findPageTarget(debugPort)
+    } catch {
+      target = undefined
+    }
+    if (target !== undefined) break
+    await new Promise(resolve => setTimeout(resolve, 1000))
+  }
+  if (target === undefined) {
+    findings.push('the application exposed no page to inspect')
+    return findings
+  }
+  const client = await connect(target.webSocketDebuggerUrl)
+  try {
+    await client.send('Page.enable')
+    await client.send('Runtime.enable')
+    // Let the document settle before it is read.
+    await new Promise(resolve => setTimeout(resolve, 3000))
+    const state = await client.evaluate(`(() => ({
+      ready: document.readyState,
+      title: document.title,
+      url: location.href,
+      text: (document.body?.innerText ?? '').slice(0, 3000),
+      elements: document.querySelectorAll('*').length,
+      buttons: Array.from(document.querySelectorAll('button,[role=button],a')).slice(0, 40)
+        .map(element => (element.innerText ?? element.getAttribute('aria-label') ?? '').trim()).filter(text => text.length > 0),
+      inputs: Array.from(document.querySelectorAll('input,textarea,[contenteditable=true]')).slice(0, 20)
+        .map(element => element.getAttribute('placeholder') ?? element.getAttribute('aria-label') ?? element.tagName),
+    }))()`)
+    writeFileSync(join(PROBE_DIRECTORY, 'page.json'), `${JSON.stringify(state, undefined, 2)}\n`)
+    if (state === undefined || state === null) findings.push('the page could not be inspected')
+    else {
+      if (state.ready !== 'complete' && state.ready !== 'interactive') {
+        findings.push(`the document is still ${String(state.ready)}`)
+      }
+      if (typeof state.elements === 'number' && state.elements < 10) {
+        findings.push(`the document rendered ${String(state.elements)} element(s); the window is likely blank`)
+      }
+      if (typeof state.text === 'string' && state.text.trim().length === 0) {
+        findings.push('the document has no visible text')
+      }
+    }
+    const image = await client.screenshot().catch(() => undefined)
+    if (image !== undefined && image.length > 0) writeFileSync(join(PROBE_DIRECTORY, 'window.png'), image)
+    else findings.push('the window could not be captured')
+  } finally {
+    client.close()
+  }
+  return findings
+}
+
+const interactionFindings = settled ? await useApplication() : []
+
 // The application keeps running after it reaches the workspace, so the probe
 // ends it once the observation is complete.
 if (child.exitCode === null) killTree(child.pid)
@@ -178,6 +247,7 @@ if (existsSync(diagnosticFile)) {
   findings.push(`fatal diagnostic: ${readFileSync(diagnosticFile, 'utf8').slice(0, 2000)}`)
 }
 if (timedOut) findings.push(`the application did not reach the workspace within ${String(timeoutMs)}ms`)
+for (const finding of interactionFindings) findings.push(finding)
 
 process.stdout.write(`[win7] probe: exit=${String(code)} events=${String(events.length)} console-errors=${String(consoleErrors.length)} workspace=${String(workspaceEvent !== undefined)}\n`)
 for (const finding of findings.slice(0, 40)) process.stdout.write(`[win7] probe finding: ${finding}\n`)
