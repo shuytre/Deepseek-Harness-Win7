@@ -195,8 +195,83 @@ async function useApplication() {
     const image = await client.screenshot().catch(() => undefined)
     if (image !== undefined && image.length > 0) writeFileSync(join(PROBE_DIRECTORY, 'window.png'), image)
     else findings.push('the window could not be captured')
+    // The application is used, not merely looked at. A control is exercised
+    // and the page is read again: a control that throws when it is used is a
+    // fault the start-up observation cannot show.
+    const used = await useControls(client)
+    for (const finding of used) findings.push(finding)
   } finally {
     client.close()
+  }
+  return findings
+}
+
+/**
+ * Exercise the controls the page offers.
+ *
+ * The interface is assembled at run time, so the probe looks for the
+ * controls by what they are rather than by a fixed name: the first text
+ * field that can be filled, and the first control that submits. Each is
+ * used, and the page is read again to see whether the use changed anything
+ * and whether it produced an error.
+ * @param {object} client - Connected DevTools client.
+ * @returns {Promise<string[]>} The findings of the interaction.
+ */
+async function useControls(client) {
+  const findings = []
+  const before = await client.evaluate('document.querySelectorAll("*").length')
+  const input = await client.evaluate(`(() => {
+    const field = Array.from(document.querySelectorAll('textarea,input:not([type=hidden]):not([type=checkbox]):not([type=radio]),[contenteditable=true]'))
+      .find(element => !element.disabled && element.getClientRects().length > 0)
+    if (field === undefined) return undefined
+    const rect = field.getBoundingClientRect()
+    return { tag: field.tagName, x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
+  })()`)
+  if (input === undefined) {
+    findings.push('the page offers no field to type into')
+    return findings
+  }
+  // Typing into a field is the first thing a user does, and it is the
+  // first thing that runs the client code of the page.
+  await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', text: 'a' }).catch(() => undefined)
+  await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a' }).catch(() => undefined)
+  await client.send('Input.insertText', { text: 'probe' }).catch(() => undefined)
+  await new Promise(resolve => setTimeout(resolve, 1000))
+  const typed = await client.evaluate(`(() => {
+    const field = document.querySelector('textarea,input:not([type=hidden]),[contenteditable=true]')
+    return field === undefined ? undefined : (field.value ?? field.innerText ?? '')
+  })()`)
+  if (typed !== undefined && String(typed).length === 0) {
+    findings.push('typing into the field had no effect')
+  }
+  const button = await client.evaluate(`(() => {
+    const element = Array.from(document.querySelectorAll('button,[role=button],input[type=submit]'))
+      .find(candidate => !candidate.disabled && candidate.getClientRects().length > 0)
+    if (element === undefined) return undefined
+    const rect = element.getBoundingClientRect()
+    return { label: (element.innerText ?? element.getAttribute('aria-label') ?? '').trim(), x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }
+  })()`)
+  if (button === undefined) {
+    findings.push('the page offers no control to press')
+  } else {
+    for (const type of ['mousePressed', 'mouseReleased']) {
+      await client.send('Input.dispatchMouseEvent', {
+        type,
+        x: button.x,
+        y: button.y,
+        button: 'left',
+        clickCount: 1,
+      }).catch(() => undefined)
+    }
+    await new Promise(resolve => setTimeout(resolve, 2000))
+  }
+  const after = await client.evaluate('document.querySelectorAll("*").length')
+  if (before !== undefined && after !== undefined && after < before) {
+    findings.push(`the page lost elements after the interaction (${String(before)} to ${String(after)})`)
+  }
+  const errors = await client.evaluate('globalThis.__dshProbeErrors ?? []').catch(() => [])
+  if (Array.isArray(errors) && errors.length > 0) {
+    for (const error of errors) findings.push(`the page raised an uncaught error: ${String(error)}`)
   }
   return findings
 }
