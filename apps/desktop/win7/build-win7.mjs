@@ -321,11 +321,12 @@ async function main() {
       ...(ignoreScripts ? ['--ignore-scripts'] : [])]))
   }
   await runStep('build', packageManagerCommand(['run', 'build']))
-  // The Electron API floor is checked before packaging: an API the Windows 7
-  // runtime does not have is `undefined` there, so the call site throws while
-  // the shell is still starting. A Windows Server runner has the newer API, so
-  // only this comparison can observe the difference.
+  // The Windows 7 API floors are checked before packaging: an API the Windows
+  // 7 runtime does not have is `undefined` there, so the call site throws
+  // while the shell is still starting. A Windows Server runner has the newer
+  // API, so only this comparison can observe the difference.
   await runStep('electron-api', ['node', join('apps', 'desktop', 'win7', 'check', 'check-electron-api.mjs')])
+  await runStep('native-api', ['node', join('apps', 'desktop', 'win7', 'check', 'check-native-api.mjs')])
   await runStep('package', packageManagerCommand(['--dir', 'apps/desktop', 'run', signed ? 'package:win:x64' : 'package:win:x64:unsigned']))
   // The packaged application is started and observed: the probe reports the
   // renderer errors, the failed loads and the crashes a Windows 7 user sees.
