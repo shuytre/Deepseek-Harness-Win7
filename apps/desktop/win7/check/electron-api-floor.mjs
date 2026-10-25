@@ -80,3 +80,13 @@ export const ELECTRON_CONSOLE_DETAILS_MIN_VERSION = 35
  * 3 (error).
  */
 export const CONSOLE_ERROR_LEVEL = 3
+
+/**
+ * First Electron version that can load an ES module as the main entry point.
+ *
+ * Electron added ES module support to the main process in 28.0.0. Before
+ * that the entry point had to be a CommonJS module, and a package that
+ * declares `"type": "module"` made the packaged application fail to start
+ * with a loader error and no window.
+ */
+export const ELECTRON_ESM_MAIN_MIN_VERSION = 28

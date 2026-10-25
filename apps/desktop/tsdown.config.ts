@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { repositoryClientBuildEnvironment, resolveClientBuildEnvironment } from '../../scripts/client-build-environment.ts'
 import { packagedImportsPlugin } from './scripts/desktop-bundle-imports.mjs'
+import { win7Profile } from './win7/profile.mjs'
 
 // This config runs after the workspace tsdown pass, not inside it: the main bundle inlines
 // workspace devDependencies from their lib/ output, which the concurrent workspace pass does
@@ -38,6 +39,9 @@ const clientVersionDefine = { 'process.env.DSH_CLIENT_VERSION': JSON.stringify(c
  */
 const SYNTAX_TARGET = process.env.DSH_TARGET_WIN7 === '1' ? 'es2022' : 'es2024'
 
+/** The track this build belongs to; the Windows 7 track ships Electron 22. */
+const win7 = win7Profile(process.env)
+
 export default defineConfig([
   {
     entry: ['lib/types/command-manager-entry.js'],
@@ -53,7 +57,15 @@ export default defineConfig([
     deps: { alwaysBundle: ['@deepseek-ai/dsh-atomic-write'] },
   },
   {
-    entry: ['lib/types/main.js'],
+    // The Windows 7 track installs Electron 22, which has no support for an
+    // ES module entry point in the main process: that support arrived in
+    // Electron 28. The main bundle is therefore a CommonJS module on that
+    // track, and the packaged manifest names it as the entry point.
+    //
+    // The bundler rewrites `import.meta.url` to the bundle's own location,
+    // so the preload paths and the module resolution the shell performs
+    // stay correct in both module systems.
+    entry: win7.enabled ? { main: 'lib/types/main.js' } : ['lib/types/main.js'],
     plugins: [packagedImportsPlugin(mainProcessImports)],
     define: clientVersionDefine,
     onSuccess: async () => {
@@ -88,7 +100,7 @@ export default defineConfig([
       })
     },
     outDir: 'lib',
-    format: ['esm'],
+    format: win7.enabled ? ['cjs'] : ['esm'],
     platform: 'node',
     target: SYNTAX_TARGET,
     fixedExtension: false,

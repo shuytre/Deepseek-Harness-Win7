@@ -326,6 +326,10 @@ async function main() {
   // reason for a build failure is visible on its own.
   await runStep('unused-imports', ['node', join('apps', 'desktop', 'win7', 'check', 'check-unused-imports.mjs')])
   await runStep('build', packageManagerCommand(['run', 'build']))
+  // The window the user sees is driven on the track the runner can open a
+  // window on. The Windows 7 track's own API gaps are covered by the
+  // comparison above, which does not need a desktop.
+  await runStep('gui-probe', ['node', join('apps', 'desktop', 'win7', 'probe', 'gui-probe.mjs')])
   // The Windows 7 API floors are checked before packaging: an API the Windows
   // 7 runtime does not have is `undefined` there, so the call site throws
   // while the shell is still starting. A Windows Server runner has the newer
@@ -333,6 +337,8 @@ async function main() {
   await runStep('electron-api', ['node', join('apps', 'desktop', 'win7', 'check', 'check-electron-api.mjs')])
   await runStep('native-api', ['node', join('apps', 'desktop', 'win7', 'check', 'check-native-api.mjs')])
   await runStep('package', packageManagerCommand(['--dir', 'apps/desktop', 'run', signed ? 'package:win:x64' : 'package:win:x64:unsigned']))
+  // The packaged entry point has to be one the Windows 7 runtime can load.
+  await runStep('entry-point', ['node', join('apps', 'desktop', 'win7', 'check', 'check-entry-point.mjs')])
   // The packaged application is started and observed: the probe reports the
   // renderer errors, the failed loads and the crashes a Windows 7 user sees.
   await runStep('user-probe', ['node', join('apps', 'desktop', 'win7', 'probe', 'run-user-probe.mjs')])

@@ -108,6 +108,10 @@ export function createElectronBuilderConfig(
       ...(policy === undefined ? {} : { dshMandatoryUpdatePolicy: policy }),
       ...buildVersion === productVersion ? {} : { version: buildVersion },
       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
+      // Electron 22 cannot load an ES module as the main entry point; that
+      // support arrived in Electron 28. The Windows 7 track therefore names
+      // the CommonJS bundle as the entry point.
+      ...(win7.enabled ? { main: 'lib/main.cjs' } : {}),
     },
     productName: 'DeepSeek Harness',
     // Unsigned builds carry their own suffix so a shared file can never pass for a release artifact.
@@ -134,7 +138,9 @@ export function createElectronBuilderConfig(
       return true
     },
     files: [
-      'lib/main.js',
+      // The Windows 7 track ships a CommonJS main bundle; see the entry
+      // point in the packaged manifest.
+      ...(win7.enabled ? ['lib/main.cjs'] : ['lib/main.js']),
       'lib/welcome/**/*',
       'lib/preload-app.cjs',
       'lib/preload-mandatory.cjs',
