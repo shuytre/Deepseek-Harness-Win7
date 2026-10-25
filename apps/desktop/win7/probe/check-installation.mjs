@@ -64,6 +64,27 @@ const chunks = []
 child.stdout?.on('data', chunk => chunks.push(chunk))
 child.stderr?.on('data', chunk => chunks.push(chunk))
 
+const timeoutMs = Number(process.env.DSH_INSTALL_CHECK_TIMEOUT_MS ?? 180_000)
+/**
+ * Kill a process and everything it started.
+ * @param {number} pid - Process identifier.
+ */
+function killTree(pid) {
+  const taskkill = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe')
+  spawn(taskkill, ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+}
+
+const timer = setTimeout(() => {
+  // A silent install that does not finish is a finding, not a reason to hold
+  // the build open: the installer is a native program that can wait on a
+  // prompt a headless host cannot answer.
+  writeFileSync(logFile, Buffer.concat(chunks.map(chunk => Buffer.from(chunk))))
+  process.stdout.write(`[win7] install-check: the installer did not finish within ${String(timeoutMs)}ms\n`)
+  killTree(child.pid)
+  process.exit(1)
+}, timeoutMs)
+timer.unref()
+
 const code = await new Promise(resolvePromise => {
   child.on('error', error => {
     chunks.push(Buffer.from(String(error)))
@@ -71,6 +92,7 @@ const code = await new Promise(resolvePromise => {
   })
   child.on('close', exit => resolvePromise(exit ?? 1))
 })
+clearTimeout(timer)
 writeFileSync(logFile, Buffer.concat(chunks.map(chunk => Buffer.from(chunk))))
 
 /**
