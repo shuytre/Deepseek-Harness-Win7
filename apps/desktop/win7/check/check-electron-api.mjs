@@ -177,20 +177,88 @@ function collectExportedNames(types) {
 }
 
 /**
- * Collect the members an interface declares.
+ * Collect the members an interface or a class declares.
+ *
+ * The Electron definitions declare most of their objects as classes and the
+ * rest as interfaces, and a class body is written the same way.
  * @param {string} types - Type definition text.
- * @param {string} name - Interface name.
+ * @param {string} name - Interface or class name.
  * @returns {Set<string>} Member names.
  */
 function collectInterfaceMembers(types, name) {
   const members = new Set()
-  const interfacePattern = new RegExp(`interface\\s+${name}\\s*\\{([\\s\\S]*?)\\n\\s*\\}`, 'u')
-  const found = interfacePattern.exec(types)
+  const declaration = new RegExp(`(?:interface|class)\\s+${name}\\s*(?:extends\\s+[A-Za-z_][A-Za-z0-9_.<>,\\s]*?)?\\s*\\{([\\s\\S]*?)\\n\\s*\\}`, 'u')
+  const found = declaration.exec(types)
   if (found === null) return members
-  const memberPattern = /^\s*(?:readonly\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[?]?\s*\(/gmu
+  const memberPattern = /^\s*(?:readonly\s+)?(?:static\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*[?]?\s*(?:[(<]|:)/gmu
   let memberMatch
   while ((memberMatch = memberPattern.exec(found[1])) !== null) members.add(memberMatch[1])
   return members
+}
+
+/**
+ * The Electron namespaces the shell reaches through, and the type
+ * definition that declares their members.
+ *
+ * A namespace is a value at run time and an interface in the type
+ * definitions, so the members it offers can be compared the same way the
+ * imported members are.
+ */
+const NAMESPACE_INTERFACES = new Map(Object.entries({
+  app: 'App',
+  session: 'Session',
+  shell: 'Shell',
+  dialog: 'Dialog',
+  net: 'Net',
+  clipboard: 'Clipboard',
+  nativeImage: 'NativeImage',
+  systemPreferences: 'SystemPreferences',
+  powerMonitor: 'PowerMonitor',
+  ipcMain: 'IpcMain',
+  ipcRenderer: 'IpcRenderer',
+  contextBridge: 'ContextBridge',
+  nativeTheme: 'NativeTheme',
+  screen: 'Screen',
+  Menu: 'Menu',
+  Tray: 'Tray',
+  Notification: 'Notification',
+  BrowserWindow: 'BrowserWindow',
+  webContents: 'WebContents',
+  MenuItem: 'MenuItem',
+}))
+
+/**
+ * Collect the ranges the quoted literals of a source occupy.
+ * @param {string} source - Source text.
+ * @returns The `[start, end]` ranges of the literals.
+ */
+function collectStringRanges(source) {
+  const ranges = []
+  const pattern = /'[^'\\\n]*'|"[^"\\\n]*"|`[^`\\]*`/gu
+  let match
+  while ((match = pattern.exec(source)) !== null) ranges.push([match.index, match.index + match[0].length])
+  return ranges
+}
+
+/**
+ * Report whether a match is a real namespace access.
+ *
+ * A name that follows a letter, a digit, a dot, a slash or a dash is part
+ * of a longer name: `preload-update-dialog.cjs` is a file, not a call on
+ * the dialog namespace. A name inside a quoted literal is a path or a
+ * string, not a call either.
+ * @param {string} source - Source text.
+ * @param {number} index - Offset of the namespace name.
+ * @param {Array<[number, number]>} literals - The ranges of the quoted literals.
+ * @returns Whether the match is a namespace access.
+ */
+function isNamespaceAccess(source, index, literals) {
+  const before = index > 0 ? source[index - 1] : ''
+  if (/[A-Za-z0-9._/-]/u.test(before)) return false
+  for (const [start, end] of literals) {
+    if (index >= start && index < end) return false
+  }
+  return true
 }
 
 /**
@@ -202,6 +270,10 @@ async function checkAgainstTypes(typesPath) {
   const types = await readFile(typesPath, 'utf8')
   const declared = collectExportedNames(types)
   const protocolMembers = collectInterfaceMembers(types, 'Protocol')
+  const namespaceMembers = new Map()
+  for (const [namespace, interfaceName] of NAMESPACE_INTERFACES) {
+    namespaceMembers.set(namespace, collectInterfaceMembers(types, interfaceName))
+  }
 
   const findings = []
   const members = new Set()
@@ -230,10 +302,12 @@ async function checkAgainstTypes(typesPath) {
   for (const root of SOURCE_ROOTS) {
     for (const file of await collectTypeScriptFiles(root)) {
       const source = await readFile(file, 'utf8')
+      const literals = collectStringRanges(source)
       for (const match of source.matchAll(/\bprotocol\.([A-Za-z_][A-Za-z0-9_]*)/gu)) {
         const member = match[1]
         // A file name such as `protocol.ts` is not a namespace access.
         if (member === 'ts' || member === 'js' || member === 'd') continue
+        if (!isNamespaceAccess(source, match.index ?? 0, literals)) continue
         // A mention inside a comment documents an API; it does not call it.
         if (isCommented(source, match.index ?? 0)) continue
         // The compatibility layer probes for the modern API by name; that is
@@ -245,6 +319,36 @@ async function checkAgainstTypes(typesPath) {
         members.add(`protocol.${member}`)
         if (!protocolMembers.has(member)) {
           findings.push({ member: `protocol.${member}`, file, reason: `Electron ${WIN7_ELECTRON_VERSION} has no protocol member '${member}'` })
+        }
+      }
+      // The members a namespace offers are reached as `namespace.member`.
+      // Only the namespaces the file imports from Electron are checked: a
+      // local variable that happens to share the name of a namespace is
+      // not an Electron call.
+      const imported = new Set(collectElectronImports(source, file).map(entry => entry.member))
+      for (const [namespace, available] of namespaceMembers) {
+        if (available.size === 0) continue
+        if (!imported.has(namespace)) continue
+        const pattern = new RegExp(`\\b${namespace}\\.([A-Za-z_][A-Za-z0-9_]*)`, 'gu')
+        for (const match of source.matchAll(pattern)) {
+          const member = match[1]
+          // A file name such as `app.js` is not a namespace access.
+          if (member === 'ts' || member === 'js' || member === 'd' || member === 'json') continue
+          if (!isNamespaceAccess(source, match.index ?? 0, literals)) continue
+          if (isCommented(source, match.index ?? 0)) continue
+          // The compatibility layer probes for the modern API by name.
+          if (file.includes(`${sep}win7${sep}`)) continue
+          const key = `${file}:${namespace}.${member}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          members.add(`${namespace}.${member}`)
+          if (!available.has(member)) {
+            findings.push({
+              member: `${namespace}.${member}`,
+              file,
+              reason: `Electron ${WIN7_ELECTRON_VERSION} has no ${namespace} member '${member}'`,
+            })
+          }
         }
       }
     }

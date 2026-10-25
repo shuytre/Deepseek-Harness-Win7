@@ -3,6 +3,7 @@ import { ipcRenderer } from 'electron'
 import { MANDATORY_IPC } from './mandatory-update-ipc.ts'
 import type { MandatoryUpdateView } from './mandatory-update-window.ts'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
+import { removeRendererListener } from './preload-ipc.ts'
 
 /** Keep update actions on a private channel to the shell frame; the shared product DOM is not a tamper-proof display. */
 export function installMandatoryUpdateOverlay(): void {
@@ -78,7 +79,7 @@ export function installMandatoryUpdateOverlay(): void {
     disposed = true
     clearTimeout(closing)
     remove()
-    ipcRenderer.off(MANDATORY_IPC.state, receive)
+    removeRendererListener(ipcRenderer, MANDATORY_IPC.state, receive)
     window.removeEventListener('keydown', blockBackgroundKey, true)
     window.removeEventListener('DOMContentLoaded', render)
   }, { once: true })

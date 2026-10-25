@@ -2,6 +2,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { MandatoryUpdateApi, MandatoryUpdateView } from './mandatory-update-window.ts'
 import { MANDATORY_IPC } from './mandatory-update-ipc.ts'
+import { removeRendererListener } from './preload-ipc.ts'
 
 const api: MandatoryUpdateApi = {
   status: () => ipcRenderer.invoke(MANDATORY_IPC.status) as Promise<MandatoryUpdateView>,
@@ -10,7 +11,7 @@ const api: MandatoryUpdateApi = {
   subscribe(listener) {
     const handle = (_event: Electron.IpcRendererEvent, state: MandatoryUpdateView): void => { listener(state) }
     ipcRenderer.on(MANDATORY_IPC.state, handle)
-    return () => { ipcRenderer.off(MANDATORY_IPC.state, handle) }
+    return () => { removeRendererListener(ipcRenderer, MANDATORY_IPC.state, handle) }
   },
 }
 if (location.href === 'dsh-app://shell/mandatory-update.html') contextBridge.exposeInMainWorld('dshMandatoryUpdate', api)

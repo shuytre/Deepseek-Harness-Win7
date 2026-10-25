@@ -10,6 +10,7 @@ import { syncNativeTheme } from './preload-theme.ts'
 import { syncWindowsAppearance } from './preload-windows.ts'
 import { installMandatoryUpdateOverlay } from './preload-mandatory-overlay.ts'
 import { createDesktopBrowserBridge } from './preload-browser.ts'
+import { removeRendererListener } from './preload-ipc.ts'
 
 function createProductApi(): DshDesktopProductApi {
   return {
@@ -34,7 +35,7 @@ function createProductApi(): DshDesktopProductApi {
           listener(input)
         }
         ipcRenderer.on(DESKTOP_IPC.shortcutsInput, handle)
-        return () => { ipcRenderer.off(DESKTOP_IPC.shortcutsInput, handle) }
+        return () => { removeRendererListener(ipcRenderer, DESKTOP_IPC.shortcutsInput, handle) }
       },
     },
     shortcuts: {
@@ -44,7 +45,7 @@ function createProductApi(): DshDesktopProductApi {
       subscribe(listener) {
         const handle = (_event: Electron.IpcRendererEvent, snapshot: ShortcutConfigSnapshot): void => { listener(snapshot) }
         ipcRenderer.on(DESKTOP_IPC.shortcutsChanged, handle)
-        return () => { ipcRenderer.off(DESKTOP_IPC.shortcutsChanged, handle) }
+        return () => { removeRendererListener(ipcRenderer, DESKTOP_IPC.shortcutsChanged, handle) }
       },
     },
     updates: {
@@ -53,7 +54,7 @@ function createProductApi(): DshDesktopProductApi {
       subscribe(listener) {
         const handle = (_event: Electron.IpcRendererEvent, state: DesktopUpdatePresentation): void => { listener(state) }
         ipcRenderer.on(DESKTOP_IPC.updatesPresentation, handle)
-        return () => { ipcRenderer.off(DESKTOP_IPC.updatesPresentation, handle) }
+        return () => { removeRendererListener(ipcRenderer, DESKTOP_IPC.updatesPresentation, handle) }
       },
     },
   }
