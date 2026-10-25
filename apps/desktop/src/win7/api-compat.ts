@@ -11,6 +11,7 @@
 import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import type { BrowserWindow, Session, WebContents } from 'electron'
 
 /**
@@ -246,7 +247,7 @@ interface CompatProtocolRequest {
 interface CompatProtocolResponse {
   statusCode?: number
   headers?: Record<string, string | string[]>
-  data?: Buffer | string
+  data?: Buffer | string | Readable
   mimeType?: string
   /** Net error number; a non-zero value fails the request instead of answering it. */
   error?: number
@@ -325,16 +326,30 @@ function bridgeProtocolRequest(request: CompatProtocolRequest): Request {
 
 /**
  * Convert a Fetch `Response` into the Electron 22 protocol response shape.
+ *
+ * The body is forwarded as a stream rather than buffered. The application
+ * serves the Host's responses, and the Host answers a chat turn as a stream
+ * of events; buffering the whole answer would hold it back until the turn
+ * ended, and the window would show nothing while it waited. Electron 22's
+ * protocol accepts a Node readable stream for exactly this reason.
+ *
+ * The length is not known in advance, so the response carries no
+ * `content-length`, and the length the Host sent is dropped for the same
+ * reason.
  * @param response - Response produced by the handler.
  * @returns Protocol response carrying the same status, headers and body.
  */
 async function bridgeProtocolResponse(response: Response): Promise<CompatProtocolResponse> {
   const headers: Record<string, string | string[]> = {}
   response.headers.forEach((value, name) => { headers[name] = value })
-  const buffer = response.body === null
-    ? Buffer.alloc(0)
-    : Buffer.from(await response.arrayBuffer())
-  return { statusCode: response.status, headers, data: buffer }
+  delete headers['content-length']
+  if (response.body === null) {
+    return { statusCode: response.status, headers, data: Buffer.alloc(0) }
+  }
+  // The body is a web stream and the protocol wants a Node one; `fromWeb`
+  // is available in the Node 16 release the track ships.
+  const stream = Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0])
+  return { statusCode: response.status, headers, data: stream }
 }
 
 /**
