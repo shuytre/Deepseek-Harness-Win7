@@ -3,15 +3,23 @@
  *
  * Electron 22 ships Chromium 108 / Node 16.17.1 and therefore lacks APIs the
  * Win10 track uses: `WebContentsView` (30), `webUtils` (29), `net.fetch` (25),
- * `session.closeAllConnections` (25). Each entry point below prefers the modern
- * API when it exists and falls back to the Electron 22 equivalent, so a single
- * source tree serves both tracks.
+ * `session.closeAllConnections` (25), `protocol.handle` (25). Each entry point
+ * below prefers the modern API when it exists and falls back to the Electron 22
+ * equivalent, so a single source tree serves both tracks.
  */
 
 import { createRequire } from 'node:module'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { BrowserWindow, Session, WebContents } from 'electron'
+
+/**
+ * Numeric console level that means "error" in the positional console signature.
+ *
+ * Chromium reports console levels as 0 (verbose), 1 (info), 2 (warning) and
+ * 3 (error).
+ */
+export const CONSOLE_ERROR_LEVEL = 3
 
 /**
  * Resolve the installed compatibility runtime directory.
@@ -221,4 +229,155 @@ export function closeWebContentsCompat(contents: WebContents): void {
   } catch {
     candidate.destroy?.()
   }
+}
+
+/** Handler shape the Desktop shell registers for its application scheme. */
+export type ProtocolHandler = (request: Request) => Response | Promise<Response>
+
+/** Electron 22 `ProtocolRequest` shape. */
+interface CompatProtocolRequest {
+  readonly url: string
+  readonly method: string
+  readonly headers: Record<string, string>
+  readonly uploadData?: Array<{ data: Buffer }> | undefined
+}
+
+/** Electron 22 `ProtocolResponse` shape. */
+interface CompatProtocolResponse {
+  statusCode?: number
+  headers?: Record<string, string | string[]>
+  data?: Buffer | string
+  mimeType?: string
+  /** Net error number; a non-zero value fails the request instead of answering it. */
+  error?: number
+}
+
+/**
+ * Register a handler for the application scheme across Electron generations.
+ *
+ * Electron 25 replaced the `register*Protocol` family with `protocol.handle`,
+ * which speaks the Fetch `Request`/`Response` shape. Electron 22 has no
+ * `handle` at all: calling it raises `TypeError: protocol.handle is not a
+ * function` while the shell is still starting, so the window never opens.
+ *
+ * The modern path is used when it exists. The Electron 22 path registers a
+ * stream protocol and bridges the same handler through it: the request is
+ * rebuilt as a Fetch `Request`, and the handler's `Response` is written back
+ * as a buffered body with the same status and headers. Buffering rather than
+ * streaming is deliberate - the shell serves local documents and forwards Host
+ * responses, and Electron 22's protocol API cannot carry a Fetch body stream
+ * through Node 16 without consuming it.
+ * @param scheme - Scheme to own.
+ * @param handler - Handler receiving the request and answering with a response.
+ */
+export function handleProtocolCompat(scheme: string, handler: ProtocolHandler): void {
+  const protocolModule = getElectronModule() as {
+    protocol: {
+      handle?: (scheme: string, handler: (request: Request) => Response | Promise<Response>) => void
+      registerStreamProtocol?: (
+        scheme: string,
+        handler: (request: CompatProtocolRequest, callback: (response: CompatProtocolResponse) => void) => void
+      ) => boolean
+    }
+  }
+  const { protocol } = protocolModule
+  if (typeof protocol.handle === 'function') {
+    protocol.handle(scheme, handler)
+    return
+  }
+  if (typeof protocol.registerStreamProtocol !== 'function') {
+    throw new Error('The Electron runtime provides no protocol registration API')
+  }
+  protocol.registerStreamProtocol(scheme, (request, callback) => {
+    void (async () => {
+      try {
+        const response = await handler(bridgeProtocolRequest(request))
+        callback(await bridgeProtocolResponse(response))
+      } catch (error) {
+        // Electron 22 reports a failed protocol load through the `error`
+        // number of the response, which is the net error list value for a
+        // failed fetch (-2).
+        callback({
+          error: -2,
+          statusCode: 500,
+          headers: { 'content-type': 'text/plain' },
+          data: error instanceof Error ? error.message : String(error),
+        })
+      }
+    })()
+  })
+}
+
+/**
+ * Rebuild a Fetch `Request` from an Electron 22 protocol request.
+ * @param request - Protocol request.
+ * @returns Fetch request carrying the same method, headers and body.
+ */
+function bridgeProtocolRequest(request: CompatProtocolRequest): Request {
+  const headers = new Headers()
+  for (const [name, value] of Object.entries(request.headers ?? {})) headers.set(name, value)
+  const method = (request.method ?? 'GET').toUpperCase()
+  const body = method === 'GET' || method === 'HEAD'
+    ? undefined
+    : Buffer.concat((request.uploadData ?? []).map(entry => entry.data))
+  return new Request(request.url, { method, headers, body, duplex: 'half' } as RequestInit)
+}
+
+/**
+ * Convert a Fetch `Response` into the Electron 22 protocol response shape.
+ * @param response - Response produced by the handler.
+ * @returns Protocol response carrying the same status, headers and body.
+ */
+async function bridgeProtocolResponse(response: Response): Promise<CompatProtocolResponse> {
+  const headers: Record<string, string | string[]> = {}
+  response.headers.forEach((value, name) => { headers[name] = value })
+  const buffer = response.body === null
+    ? Buffer.alloc(0)
+    : Buffer.from(await response.arrayBuffer())
+  return { statusCode: response.status, headers, data: buffer }
+}
+
+/**
+ * Read a renderer console error across Electron generations.
+ *
+ * Electron 22 emits the console event positionally as
+ * `(event, level, message, line, sourceId)` with a numeric level, where 3 is
+ * an error. Later releases emit `(event, details)` with a details object whose
+ * `level` is the string `'error'`.
+ *
+ * A listener written only against the modern shape silently collects nothing
+ * on Electron 22: the first argument is the event, whose `level` is
+ * `undefined`, and `undefined !== 'error'` is always true. Reading both
+ * shapes keeps the error tail populated on both tracks.
+ * @param args - Arguments the console event delivered.
+ * @returns Formatted error line, or undefined when the message is not an error.
+ */
+export function readConsoleMessage(args: readonly unknown[]): string | undefined {
+  // Modern shape: (event, details).
+  const [first, second] = args
+  if (isRecord(second) && typeof second.level === 'string') {
+    if (second.level !== 'error') return undefined
+    const sourceId = typeof second.sourceId === 'string' ? second.sourceId : 'renderer'
+    const lineNumber = typeof second.lineNumber === 'number' ? second.lineNumber : 0
+    return `${sourceId}:${String(lineNumber)} ${String(second.message ?? '')}`
+  }
+  // Legacy shape: (event, level, message, line, sourceId).
+  if (typeof second === 'number') {
+    if (second !== CONSOLE_ERROR_LEVEL) return undefined
+    const message = typeof args[2] === 'string' ? args[2] : ''
+    const line = typeof args[3] === 'number' ? args[3] : 0
+    const sourceId = typeof args[4] === 'string' ? args[4] : 'renderer'
+    return `${sourceId}:${String(line)} ${message}`
+  }
+  void first
+  return undefined
+}
+
+/**
+ * Report whether a value is a plain object.
+ * @param value - Value to inspect.
+ * @returns Whether the value can carry named properties.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }

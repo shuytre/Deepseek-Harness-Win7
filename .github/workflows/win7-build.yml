@@ -129,6 +129,18 @@ jobs:
           path: |
             .desktop-build/win7-build/win7-run.json
             .desktop-build/win7-build/pe-import-report.json
+            .desktop-build/win7-build/electron-api.log
+          if-no-files-found: warn
+
+      - name: Upload the automated user probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: win7-user-probe
+          path: |
+            .desktop-build/win7-build/probe/probe.json
+            .desktop-build/win7-build/probe/probe.log
+            .desktop-build/win7-build/probe/window.png
           if-no-files-found: warn
 
       - name: Upload build logs on failure

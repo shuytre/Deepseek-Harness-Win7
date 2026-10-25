@@ -39,7 +39,7 @@ import { DesktopCommandManager } from './command-management.ts'
 import { serveWebDocument, authenticateWebHost, forwardWebRequest } from './web-document.ts'
 import { DesktopFatalRecovery } from './fatal-recovery.ts'
 import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashReportSource } from './crash-report.ts'
-import { applyTitleBarOverlayCompat, createCompatFetch, loadWin7MainProcessPolyfills } from './win7/api-compat.ts'
+import { applyTitleBarOverlayCompat, createCompatFetch, handleProtocolCompat, loadWin7MainProcessPolyfills, readConsoleMessage } from './win7/api-compat.ts'
 
 // The Windows 7 track runs this bundle under Electron 22's Node 16, which lacks
 // Promise.withResolvers, AbortSignal.any, structuredClone, fs.globSync and the
@@ -706,7 +706,7 @@ async function main(): Promise<void> {
     window.once('closed', () => { resolve() })
   })
 
-  protocol.handle(SCHEME, (request) => {
+  handleProtocolCompat(SCHEME, (request) => {
     const url = new URL(request.url)
     // Shell-owned documents live in the application bundle and never pass through the Host.
     if (url.hostname === 'shell') return serveWebDocument(request, join(app.getAppPath(), 'renderer'))
@@ -1139,9 +1139,10 @@ async function main(): Promise<void> {
       window.on('show', () => { sessionEnding = false })
     }
     window.on('closed', () => { if (mainWindow === window) mainWindow = undefined })
-    window.webContents.on('console-message', (details) => {
-      if (details.level !== 'error') return
-      rendererConsole.push(`${details.sourceId}:${String(details.lineNumber)} ${details.message}`)
+    window.webContents.on('console-message', (...args: unknown[]) => {
+      const entry = readConsoleMessage(args)
+      if (entry === undefined) return
+      rendererConsole.push(entry)
     })
     window.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
       if (isMainFrame && code !== -3 && !quitting && !window.isDestroyed()) {
