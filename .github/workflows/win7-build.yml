@@ -138,9 +138,10 @@ jobs:
         with:
           name: win7-user-probe
           path: |
-            .desktop-build/win7-build/probe/probe.json
+            .desktop-build/win7-build/probe/session.log
             .desktop-build/win7-build/probe/probe.log
-            .desktop-build/win7-build/probe/window.png
+            .desktop-build/win7-build/probe/fatal.log
+            .desktop-build/win7-build/probe/win7-trace.log
           if-no-files-found: warn
 
       - name: Upload build logs on failure

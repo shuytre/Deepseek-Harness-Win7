@@ -40,6 +40,7 @@ import { serveWebDocument, authenticateWebHost, forwardWebRequest } from './web-
 import { DesktopFatalRecovery } from './fatal-recovery.ts'
 import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashReportSource } from './crash-report.ts'
 import { applyTitleBarOverlayCompat, createCompatFetch, handleProtocolCompat, loadWin7MainProcessPolyfills, readConsoleMessage } from './win7/api-compat.ts'
+import { createSessionReporter, sessionReportFile } from './win7/session-report.ts'
 
 // The Windows 7 track runs this bundle under Electron 22's Node 16, which lacks
 // Promise.withResolvers, AbortSignal.any, structuredClone, fs.globSync and the
@@ -89,6 +90,15 @@ let windowsLanguage: string | undefined
 let backendReady = false
 /** Error-level console output of the primary window, attached to crash reports. */
 const rendererConsole = new RendererConsoleTail()
+/**
+ * Session report for the Windows 7 track.
+ *
+ * The track's failures are invisible to a Windows Server runner, so the
+ * application describes its own state to a file when one is asked for. The
+ * reporter is inert otherwise.
+ */
+const sessionReport = createSessionReporter(sessionReportFile())
+sessionReport.record('start', `electron=${process.versions.electron} node=${process.versions.node} packaged=${String(app.isPackaged)}`)
 
 // Platform-conventional logs directory (macOS ~/Library/Logs/<name>, otherwise under userData);
 // set before ready so the first fatal report already resolves under it.
@@ -375,6 +385,9 @@ async function main(): Promise<void> {
   const loginShellRead = new AbortController()
   // The probe runs in its own process group, which outlives Desktop unless the read is aborted.
   app.on('will-quit', () => { loginShellRead.abort() })
+  // The session report has to reach disk on the way out, so it is flushed
+  // while the process is still able to write.
+  app.on('will-quit', () => { void sessionReport.flush() })
   const loginShell = readDesktopLoginShellEnvironment(process.env, resolveDesktopLoginShellConfig(process.env), {
     signal: loginShellRead.signal,
   }).then((result) => {
@@ -706,6 +719,7 @@ async function main(): Promise<void> {
     window.once('closed', () => { resolve() })
   })
 
+  sessionReport.record('protocol', `registered ${SCHEME}`)
   handleProtocolCompat(SCHEME, (request) => {
     const url = new URL(request.url)
     // Shell-owned documents live in the application bundle and never pass through the Host.
@@ -1143,17 +1157,21 @@ async function main(): Promise<void> {
       const entry = readConsoleMessage(args)
       if (entry === undefined) return
       rendererConsole.push(entry)
+      sessionReport.record('renderer-console', entry)
     })
     window.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+      if (isMainFrame) sessionReport.record('did-fail-load', `${String(code)} ${description} ${url}`)
       if (isMainFrame && code !== -3 && !quitting && !window.isDestroyed()) {
         reportFatal(new Error(`Desktop page failed to load: ${url} (${String(code)}: ${description})`), 'renderer')
       }
     })
     window.webContents.on('preload-error', (_event, _path, error) => {
+      sessionReport.record('preload-error', String(error))
       if (!quitting && !window.isDestroyed()) reportFatal(error, 'renderer')
     })
     window.webContents.on('render-process-gone', (_event, details) => {
       navigation = undefined
+      sessionReport.record('render-process-gone', `${details.reason} (${String(details.exitCode)})`)
       if (!quitting && !window.isDestroyed() && details.reason !== 'clean-exit') {
         reportFatal(new Error(`Desktop renderer exited: ${details.reason}`), 'renderer')
       }
@@ -1165,6 +1183,7 @@ async function main(): Promise<void> {
     const window = mainWindow ?? createMainWindow()
     await navigateMain(applicationUrl)
     if (isQuitting() || recovery.active || window.isDestroyed()) return
+    sessionReport.record('workspace', `entered the workspace at ${new Date().toISOString()}`)
     if (activate) window.show()
     else window.showInactive()
     enteredWorkspace = true
@@ -1392,6 +1411,8 @@ if (ownsDesktopInstance) void app.whenReady().then(main).catch(async (error: unk
   if (diagnosticFile !== undefined) {
     await writeFile(diagnosticFile, `${error instanceof Error ? error.stack ?? message : message}\n`).catch(() => undefined)
   }
+  sessionReport.record('fatal', message)
+  await sessionReport.flush()
   reportFatal(error, 'main')
 }).catch((error: unknown) => {
   console.error(error)

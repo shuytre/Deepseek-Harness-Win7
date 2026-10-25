@@ -1,11 +1,16 @@
 /**
  * Launch the automated user probe against the packaged Windows 7 payload.
  *
- * The probe runs as the Electron main process so it can observe the renderer
- * events a product does not persist. This launcher prepares the private
- * directories the probe expects, starts Electron with the packaged
- * application, and guarantees that the whole process tree is gone when the
- * probe finishes or overruns its deadline.
+ * The probe starts the packaged application exactly as a user would, and
+ * reads the session report the application writes for itself. Starting the
+ * real executable is what makes the observation faithful: the packaged entry
+ * point, the packaged runtime and the packaged protocol registration are all
+ * the ones that ship.
+ *
+ * The Windows 7 track installs Electron 22.3.27, whose API surface is the
+ * same on every operating system, so an API the Windows 7 runtime lacks is
+ * missing here too. The failures this probe reports are therefore the
+ * failures a Windows 7 user sees.
  *
  * A Windows child process is not killed by terminating its parent, so the
  * deadline path kills the tree explicitly; otherwise the Host process would
@@ -13,13 +18,15 @@
  */
 
 import { spawn } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
 const REPOSITORY_ROOT = resolve(HERE, '..', '..', '..')
 const BUILD_PATHS_ROOT = join(REPOSITORY_ROOT, 'apps', 'desktop', '.desktop-build', 'targets', 'win-x64')
+const RUN_DIRECTORY = join(REPOSITORY_ROOT, '.desktop-build', 'win7-build')
+const PROBE_DIRECTORY = join(RUN_DIRECTORY, 'probe')
 
 /**
  * Locate the packaged application directory of the Windows 7 build.
@@ -34,42 +41,48 @@ function findPackagedApplication() {
 }
 
 /**
- * Locate the Electron binary the Windows 7 track installs.
+ * Locate the packaged application executable.
+ * @param {string} root - Packaged application root.
  * @returns The executable path, or undefined when it is absent.
  */
-function findElectron() {
+function findExecutable(root) {
   const candidates = [
-    join(BUILD_PATHS_ROOT, 'electron', 'electron.exe'),
-    join(BUILD_PATHS_ROOT, 'electron', 'dist', 'electron.exe'),
+    join(root, 'DeepSeek Harness.exe'),
+    join(root, 'deepseek-harness.exe'),
   ]
   return candidates.find(candidate => existsSync(candidate))
 }
 
 const packaged = findPackagedApplication()
-const electron = findElectron()
-if (packaged === undefined || electron === undefined) {
-  writeFileSync(join(REPOSITORY_ROOT, '.desktop-build', 'win7-build', 'probe.log'),
-    `the packaged application or the Electron runtime is missing\npackaged=${packaged ?? 'none'}\nelectron=${electron ?? 'none'}\n`)
+if (packaged === undefined) {
+  mkdirSync(RUN_DIRECTORY, { recursive: true })
+  writeFileSync(join(RUN_DIRECTORY, 'probe.log'), `the packaged application is missing under ${BUILD_PATHS_ROOT}\n`)
+  process.exit(2)
+}
+const executable = findExecutable(packaged)
+if (executable === undefined) {
+  mkdirSync(RUN_DIRECTORY, { recursive: true })
+  writeFileSync(join(RUN_DIRECTORY, 'probe.log'), `the packaged application has no executable under ${packaged}\n`)
   process.exit(2)
 }
 
-const root = join(REPOSITORY_ROOT, '.desktop-build', 'win7-build', 'probe')
-mkdirSync(root, { recursive: true })
-// The probe loads the product entry point through `app.setAppPath`, so the
-// packaged application is presented as a plain directory.
-const application = join(root, 'app')
-if (!existsSync(application)) cpSync(packaged, application, { recursive: true })
+mkdirSync(PROBE_DIRECTORY, { recursive: true })
+const reportFile = join(PROBE_DIRECTORY, 'session.log')
+const diagnosticFile = join(PROBE_DIRECTORY, 'fatal.log')
+if (existsSync(reportFile)) writeFileSync(reportFile, '')
 
-const timeoutMs = Number(process.env.DSH_WIN7_PROBE_TIMEOUT_MS ?? 300_000)
-const child = spawn(electron, [join(HERE, 'user-probe.mjs')], {
-  cwd: REPOSITORY_ROOT,
+const timeoutMs = Number(process.env.DSH_WIN7_PROBE_TIMEOUT_MS ?? 240_000)
+const child = spawn(executable, [], {
+  cwd: packaged,
   env: {
     ...process.env,
-    DSH_WIN7_PROBE_ROOT: root,
+    // The application writes its own session report here.
+    DSH_DESKTOP_SESSION_REPORT: reportFile,
+    DSH_DESKTOP_DIAGNOSTIC_FILE: diagnosticFile,
     DSH_DESKTOP_OPEN_DEVTOOLS: '0',
-    // The probe observes a packaged application; it must not pick up the
-    // development runtime of the checkout.
-    DSH_DESKTOP_PRIMARY_RUNTIME_DIR: join(application, 'resources', 'runtime', 'primary-runtime'),
+    // The probe owns the profile, so the application must not adopt a
+    // protocol client or a single-instance lock of the developer's machine.
+    DSH_WIN7_TRACE_FILE: join(PROBE_DIRECTORY, 'win7-trace.log'),
   },
   stdio: ['ignore', 'pipe', 'pipe'],
   windowsHide: false,
@@ -88,54 +101,79 @@ function killTree(pid) {
   spawn(taskkill, ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
 }
 
-const timer = setTimeout(() => {
-  writeFileSync(join(root, 'probe.log'), `the probe exceeded its ${String(timeoutMs)}ms deadline\n`)
-  killTree(child.pid)
-}, timeoutMs)
+/**
+ * Read the events the application has reported so far.
+ * @returns The parsed events.
+ */
+function readEvents() {
+  if (!existsSync(reportFile)) return []
+  const events = []
+  for (const line of readFileSync(reportFile, 'utf8').split('\n')) {
+    if (line.length === 0) continue
+    try {
+      events.push(JSON.parse(line))
+    } catch {
+      // The tail of the file is the renderer console section in plain text.
+    }
+  }
+  return events
+}
+
+let timedOut = false
+let settled = false
+const deadline = Date.now() + timeoutMs
+while (Date.now() < deadline) {
+  const events = readEvents()
+  // The application reaches the workspace once it has loaded the page and
+  // shown the window; that is the point where the renderer has reported
+  // whatever it reports.
+  if (events.some(event => event.kind === 'workspace')) { settled = true; break }
+  if (events.some(event => event.kind === 'fatal')) { settled = true; break }
+  if (child.exitCode !== null) { settled = true; break }
+  await new Promise(resolve => setTimeout(resolve, 1000))
+}
+
+// The application keeps running after it reaches the workspace, so the probe
+// ends it once the observation is complete.
+killTree(child.pid)
 
 const code = await new Promise(resolvePromise => {
-  child.on('error', error => {
-    chunks.push(Buffer.from(String(error)))
-    resolvePromise(1)
-  })
+  if (child.exitCode !== null) { resolvePromise(child.exitCode); return }
   child.on('close', exit => resolvePromise(exit ?? 1))
 })
-clearTimeout(timer)
-writeFileSync(join(root, 'probe.log'), Buffer.concat(chunks.map(chunk => Buffer.from(chunk))))
+if (!settled) timedOut = true
+writeFileSync(join(PROBE_DIRECTORY, 'probe.log'), Buffer.concat(chunks.map(chunk => Buffer.from(chunk))))
 
-const reportPath = join(root, 'probe.json')
-if (!existsSync(reportPath)) {
-  process.stdout.write(`[win7] probe: no report was produced (exit ${String(code)})\n`)
-  process.exit(code === 0 ? 1 : code)
+const events = readEvents()
+const consoleErrors = events.filter(event => event.kind === 'renderer-console').map(event => String(event.detail))
+const fatal = events.find(event => event.kind === 'fatal')
+const renderGone = events.filter(event => event.kind === 'render-process-gone')
+const loadFailures = events.filter(event => event.kind === 'did-fail-load')
+const preloadErrors = events.filter(event => event.kind === 'preload-error')
+const protocolEvent = events.find(event => event.kind === 'protocol')
+const workspaceEvent = events.find(event => event.kind === 'workspace')
+
+const findings = []
+if (protocolEvent === undefined) findings.push('the application never registered its protocol')
+if (fatal !== undefined) findings.push(`the application failed to start: ${String(fatal.detail)}`)
+if (workspaceEvent === undefined && fatal === undefined) {
+  findings.push('the application never reached the workspace')
 }
+for (const error of consoleErrors) findings.push(`renderer console error: ${error}`)
+for (const error of renderGone) findings.push(`the renderer exited: ${String(error.detail)}`)
+for (const error of loadFailures) findings.push(`the page failed to load: ${String(error.detail)}`)
+for (const error of preloadErrors) findings.push(`the preload failed: ${String(error.detail)}`)
+if (existsSync(diagnosticFile)) {
+  findings.push(`fatal diagnostic: ${readFileSync(diagnosticFile, 'utf8').slice(0, 2000)}`)
+}
+if (timedOut) findings.push(`the application did not reach the workspace within ${String(timeoutMs)}ms`)
 
-const report = JSON.parse(readFileSync(reportPath, 'utf8'))
-const summary = [
-  `exit=${String(report.exitCode)}`,
-  `console-errors=${String(report.consoleErrors?.length ?? 0)}`,
-  `window-errors=${String(report.windowErrors?.length ?? 0)}`,
-  `render-gone=${String(report.renderGone?.length ?? 0)}`,
-  `load-failures=${String(report.loadFailures?.length ?? 0)}`,
-  `unresponsive=${String(report.unresponsive?.length ?? 0)}`,
-  `document-ready=${String(report.documentReady)}`,
-].join(' ')
-process.stdout.write(`[win7] probe: ${summary}\n`)
+process.stdout.write(`[win7] probe: exit=${String(code)} events=${String(events.length)} console-errors=${String(consoleErrors.length)} workspace=${String(workspaceEvent !== undefined)}\n`)
+for (const finding of findings.slice(0, 40)) process.stdout.write(`[win7] probe finding: ${finding}\n`)
 
-const failures = []
-for (const error of report.consoleErrors ?? []) failures.push(`console error: ${error}`)
-for (const error of report.windowErrors ?? []) failures.push(`window error: ${error}`)
-for (const error of report.renderGone ?? []) failures.push(`renderer exited: ${JSON.stringify(error)}`)
-for (const error of report.loadFailures ?? []) failures.push(`load failure: ${JSON.stringify(error)}`)
-for (const error of report.unresponsive ?? []) failures.push('the renderer became unresponsive')
-for (const error of report.uncaught ?? []) failures.push(`uncaught: ${error}`)
-for (const error of report.unhandledRejection ?? []) failures.push(`unhandled rejection: ${error}`)
-if (report.probeError !== undefined) failures.push(`probe error: ${String(report.probeError)}`)
-if (report.documentReady !== true) failures.push('the document never became interactive')
-
-for (const failure of failures.slice(0, 40)) process.stdout.write(`[win7] probe failure: ${failure}\n`)
-if (failures.length > 0) {
-  process.stdout.write(`[win7] probe: ${String(failures.length)} finding(s)\n`)
+if (findings.length > 0) {
+  process.stdout.write(`[win7] probe: ${String(findings.length)} finding(s)\n`)
   process.exit(1)
 }
-process.stdout.write('[win7] probe: no findings\n')
+process.stdout.write('[win7] probe: the application reached the workspace without a finding\n')
 process.exit(0)
