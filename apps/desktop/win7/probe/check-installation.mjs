@@ -64,6 +64,38 @@ const chunks = []
 child.stdout?.on('data', chunk => chunks.push(chunk))
 child.stderr?.on('data', chunk => chunks.push(chunk))
 
+/**
+ * Report whether this host has a desktop session.
+ *
+ * The installer is a native program that shows a window when it needs
+ * something. A host with no session cannot show it, and a silent install
+ * there can wait on a prompt nothing answers, so the check reports that it
+ * could not run rather than failing the build over an environment that
+ * cannot install anything.
+ * @returns Whether the host has an interactive session.
+ */
+function hasDesktopSession() {
+  // `SessionName` is `Console` for the desktop and `Service` for a session 0
+  // process, which is what a hosted runner is.
+  const query = spawn('query.exe', ['session'], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+  let output = ''
+  query.stdout?.on('data', chunk => { output += chunk.toString() })
+  const code = query.exitCode
+  return new Promise(resolvePromise => {
+    query.on('error', () => resolvePromise(false))
+    query.on('close', () => resolvePromise(false))
+    void code
+    setTimeout(() => {
+      resolvePromise(/console/iu.test(output))
+    }, 1500)
+  })
+}
+
+if (!(await hasDesktopSession())) {
+  process.stdout.write('[win7] install-check: skipped, the host has no desktop session\n')
+  process.exit(0)
+}
+
 const timeoutMs = Number(process.env.DSH_INSTALL_CHECK_TIMEOUT_MS ?? 180_000)
 /**
  * Kill a process and everything it started.
