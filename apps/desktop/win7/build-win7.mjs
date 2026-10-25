@@ -320,6 +320,11 @@ async function main() {
     await runStep('install', packageManagerCommand(['install', '--no-frozen-lockfile', '--child-concurrency=1',
       ...(ignoreScripts ? ['--ignore-scripts'] : [])]))
   }
+  // The build treats an unused import as an error. A developer without a
+  // complete installation cannot run the compiler, so this check answers the
+  // same question by reading the sources. It runs before the build so the
+  // reason for a build failure is visible on its own.
+  await runStep('unused-imports', ['node', join('apps', 'desktop', 'win7', 'check', 'check-unused-imports.mjs')])
   await runStep('build', packageManagerCommand(['run', 'build']))
   // The Windows 7 API floors are checked before packaging: an API the Windows
   // 7 runtime does not have is `undefined` there, so the call site throws

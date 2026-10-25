@@ -16,7 +16,6 @@
  */
 
 import { appendFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
 
 /** One reported fact about the session. */
 export interface SessionDiagnostic {
