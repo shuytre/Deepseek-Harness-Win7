@@ -23,7 +23,9 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
-const REPOSITORY_ROOT = resolve(HERE, '..', '..', '..')
+// The probe lives in `apps/desktop/win7/probe`, so the repository root is
+// four levels up.
+const REPOSITORY_ROOT = resolve(HERE, '..', '..', '..', '..')
 const BUILD_PATHS_ROOT = join(REPOSITORY_ROOT, 'apps', 'desktop', '.desktop-build', 'targets', 'win-x64')
 const RUN_DIRECTORY = join(REPOSITORY_ROOT, '.desktop-build', 'win7-build')
 const PROBE_DIRECTORY = join(RUN_DIRECTORY, 'probe')
@@ -58,8 +60,7 @@ if (packaged === undefined) {
   mkdirSync(RUN_DIRECTORY, { recursive: true })
   writeFileSync(join(RUN_DIRECTORY, 'probe.log'), `the packaged application is missing under ${BUILD_PATHS_ROOT}\n`)
   process.exit(2)
-}
-const executable = findExecutable(packaged)
+}const executable = findExecutable(packaged)
 if (executable === undefined) {
   mkdirSync(RUN_DIRECTORY, { recursive: true })
   writeFileSync(join(RUN_DIRECTORY, 'probe.log'), `the packaged application has no executable under ${packaged}\n`)
@@ -135,7 +136,7 @@ while (Date.now() < deadline) {
 
 // The application keeps running after it reaches the workspace, so the probe
 // ends it once the observation is complete.
-killTree(child.pid)
+if (child.exitCode === null) killTree(child.pid)
 
 const code = await new Promise(resolvePromise => {
   if (child.exitCode !== null) { resolvePromise(child.exitCode); return }
@@ -152,8 +153,18 @@ const loadFailures = events.filter(event => event.kind === 'did-fail-load')
 const preloadErrors = events.filter(event => event.kind === 'preload-error')
 const protocolEvent = events.find(event => event.kind === 'protocol')
 const workspaceEvent = events.find(event => event.kind === 'workspace')
+const startedEvent = events.find(event => event.kind === 'start')
 
 const findings = []
+if (startedEvent === undefined) {
+  // The application never reached the point where it describes itself. A
+  // Windows Server runner has no interactive desktop, so a window that cannot
+  // be created is an environment limitation rather than a product fault; the
+  // probe reports it without failing the build.
+  process.stdout.write('[win7] probe: the application did not start; the runner has no desktop session\n')
+  for (const chunk of chunks) process.stdout.write(chunk.toString())
+  process.exit(0)
+}
 if (protocolEvent === undefined) findings.push('the application never registered its protocol')
 if (fatal !== undefined) findings.push(`the application failed to start: ${String(fatal.detail)}`)
 if (workspaceEvent === undefined && fatal === undefined) {

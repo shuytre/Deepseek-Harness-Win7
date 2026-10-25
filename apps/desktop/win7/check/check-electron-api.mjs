@@ -257,7 +257,12 @@ try {
   const typesPath = await resolveTypes()
   const report = await checkAgainstTypes(typesPath)
   const relative = (file) => file.replace(`${REPOSITORY_ROOT}/`, '').replaceAll('\\', '/')
-  if (report.findings.length > 0) {
+  if (report.members.length === 0) {
+    // A check that inspected nothing proves nothing. A wrong repository root
+    // would silently turn this gate green, so the empty result is a failure.
+    process.stdout.write('[win7] electron-api: no Electron member was inspected; the check cannot run\n')
+    process.exitCode = 2
+  } else if (report.findings.length > 0) {
     process.stdout.write(`[win7] electron-api: ${report.findings.length} API(s) missing from Electron ${WIN7_ELECTRON_VERSION}\n`)
     for (const finding of report.findings) {
       process.stdout.write(`  ${relative(finding.file)}: ${finding.member} - ${finding.reason}\n`)

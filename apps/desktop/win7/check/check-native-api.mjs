@@ -93,8 +93,10 @@ function findUses(source, pattern) {
 
 const findings = []
 const mentions = []
+let scannedFiles = 0
 for (const directory of SOURCE_DIRECTORIES) {
   for (const file of await collectNativeFiles(directory)) {
+    scannedFiles += 1
     const source = await readFile(file, 'utf8')
     const shown = relative(REPOSITORY_ROOT, file).replaceAll('\\', '/')
     const rules = [
@@ -129,14 +131,19 @@ for (const directory of SOURCE_DIRECTORIES) {
   }
 }
 
-if (findings.length > 0) {
+if (scannedFiles === 0) {
+  // A check that inspected nothing proves nothing. A wrong repository root
+  // would silently turn this gate green, so the empty result is a failure.
+  process.stdout.write('[win7] native-api: no native source was inspected; the check cannot run\n')
+  process.exitCode = 2
+} else if (findings.length > 0) {
   process.stdout.write(`[win7] native-api: ${String(findings.length)} use(s) of APIs Windows 7 SP1 does not have\n`)
   for (const finding of findings) {
     process.stdout.write(`  ${finding.file}:${String(finding.line)}: ${finding.name} needs Windows ${String(finding.floor)}\n`)
   }
   process.exitCode = 1
 } else {
-  process.stdout.write('[win7] native-api: no Windows 8+ API use in the native sources\n')
+  process.stdout.write(`[win7] native-api: ${String(scannedFiles)} native source file(s) inspected, no Windows 8+ API use\n`)
 }
 
 if (mentions.length > 0) {
