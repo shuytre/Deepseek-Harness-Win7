@@ -83,7 +83,9 @@ const timer = setTimeout(() => {
   killTree(child.pid)
   process.exit(1)
 }, timeoutMs)
-timer.unref()
+// The timer is deliberately referenced: a bound that can be dropped when
+// nothing else is pending is not a bound. The installer is the only thing
+// being waited for, and the wait has to end even if it never finishes.
 
 const code = await new Promise(resolvePromise => {
   child.on('error', error => {
