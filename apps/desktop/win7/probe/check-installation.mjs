@@ -16,7 +16,8 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -24,7 +25,14 @@ const HERE = fileURLToPath(new URL('.', import.meta.url))
 const REPOSITORY_ROOT = resolve(HERE, '..', '..', '..', '..')
 const BUILD_PATHS_ROOT = join(REPOSITORY_ROOT, 'apps', 'desktop', '.desktop-build', 'targets', 'win-x64')
 const RUN_DIRECTORY = join(REPOSITORY_ROOT, '.desktop-build', 'win7-build')
-const INSTALL_DIRECTORY = join(RUN_DIRECTORY, 'install-check')
+/**
+ * Where the installer is told to put the application.
+ *
+ * Deliberately outside the run directory: the diagnostics commit copies that
+ * directory into a branch, and a full installation is a gigabyte of it.
+ */
+const INSTALL_DIRECTORY = join(tmpdir(), 'dsh-win7-install-check')
+const CHECK_DIRECTORY = join(RUN_DIRECTORY, 'install-check')
 
 /**
  * Locate the produced installer.
@@ -52,26 +60,19 @@ if (installer === undefined) {
   process.exit(2)
 }
 
-mkdirSync(INSTALL_DIRECTORY, { recursive: true })
-const logFile = join(INSTALL_DIRECTORY, 'install.log')
-
-const child = spawn(installer, ['/S', `/D=${INSTALL_DIRECTORY}`], {
-  cwd: INSTALL_DIRECTORY,
-  stdio: ['ignore', 'pipe', 'pipe'],
-  windowsHide: true,
-})
-const chunks = []
-child.stdout?.on('data', chunk => chunks.push(chunk))
-child.stderr?.on('data', chunk => chunks.push(chunk))
+// A stale tree from an earlier run would satisfy every check below without the
+// installer having written anything.
+rmSync(INSTALL_DIRECTORY, { recursive: true, force: true })
+mkdirSync(CHECK_DIRECTORY, { recursive: true })
+const logFile = join(CHECK_DIRECTORY, 'install.log')
 
 /**
  * Report whether this host has a desktop session.
  *
- * The installer is a native program that shows a window when it needs
- * something. A host with no session cannot show it, and a silent install
- * there can wait on a prompt nothing answers, so the check reports that it
- * could not run rather than failing the build over an environment that
- * cannot install anything.
+ * Kept for the report only: the silent install below does not need one. Every
+ * prompt the installer can reach carries `/SD IDOK`, so the run cannot block on
+ * a window nothing answers — and skipping the check on a desktop-less host is
+ * how a silent install that exited 2 without writing a file went unnoticed.
  * @returns Whether the host has an interactive session.
  */
 function hasDesktopSession() {
@@ -80,21 +81,24 @@ function hasDesktopSession() {
   const query = spawn('query.exe', ['session'], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
   let output = ''
   query.stdout?.on('data', chunk => { output += chunk.toString() })
-  const code = query.exitCode
   return new Promise(resolvePromise => {
     query.on('error', () => resolvePromise(false))
-    query.on('close', () => resolvePromise(false))
-    void code
-    setTimeout(() => {
-      resolvePromise(/console/iu.test(output))
-    }, 1500)
+    query.on('close', () => resolvePromise(/console/iu.test(output)))
+    setTimeout(() => resolvePromise(/console/iu.test(output)), 1500)
   })
 }
 
-if (!(await hasDesktopSession())) {
-  process.stdout.write('[win7] install-check: skipped, the host has no desktop session\n')
-  process.exit(0)
-}
+const desktopSession = await hasDesktopSession()
+process.stdout.write(`[win7] install-check: installing into a private directory (interactive session: ${String(desktopSession)})\n`)
+
+const child = spawn(installer, ['/S', `/D=${INSTALL_DIRECTORY}`], {
+  cwd: tmpdir(),
+  stdio: ['ignore', 'pipe', 'pipe'],
+  windowsHide: true,
+})
+const chunks = []
+child.stdout?.on('data', chunk => chunks.push(chunk))
+child.stderr?.on('data', chunk => chunks.push(chunk))
 
 const timeoutMs = Number(process.env.DSH_INSTALL_CHECK_TIMEOUT_MS ?? 180_000)
 /**

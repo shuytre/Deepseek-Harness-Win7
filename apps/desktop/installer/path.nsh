@@ -119,6 +119,13 @@ FunctionEnd
 
 ; A new installation requires an empty directory; updates require the registered executable.
 Function InstallerPreflight
+    ; The edited path is filled from the directory page, and `/S` never shows it.
+    ; Without this the silent install validates an empty string, reports the path
+    ; as invalid and exits with 2 without writing anything. `$INSTDIR` already
+    ; carries the `/D=` choice, so it is the path the caller asked for.
+    ${If} $InstallerPath == ""
+        StrCpy $InstallerPath $INSTDIR
+    ${EndIf}
     Call InstallerValidatePath
     ${If} $InstallerError != ""
         Return

@@ -97,6 +97,12 @@ Function InstallerCreate
     Pop $InstallerEditFrame
     !insertmacro InstallerPlace $InstallerEditFrame 64 434 384 34
     Call InstallerDrawEditFrame
+    ; The field has to show where the installation will actually go. Nothing has
+    ; filled the edited path before the page is drawn, so an empty control would
+    ; show a blank directory and be rejected as invalid on the way out.
+    ${If} $InstallerPath == ""
+        StrCpy $InstallerPath $INSTDIR
+    ${EndIf}
     ${NSD_CreateText} 0 0 0 0 "$InstallerPath"
     Pop $InstallerEdit
     System::Call 'user32::GetWindowLongW(p $InstallerEdit, i -16) i.r0'
