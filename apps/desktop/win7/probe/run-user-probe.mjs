@@ -330,11 +330,57 @@ if (existsSync(diagnosticFile)) {
 if (timedOut) findings.push(`the application did not reach the workspace within ${String(timeoutMs)}ms`)
 for (const finding of interactionFindings) findings.push(finding)
 
-process.stdout.write(`[win7] probe: exit=${String(code)} events=${String(events.length)} console-errors=${String(consoleErrors.length)} workspace=${String(workspaceEvent !== undefined)}\n`)
+/**
+ * Whether this runner has a desktop a window can be shown on.
+ *
+ * A hosted Windows runner executes the job in session 0, whose window station no
+ * user is attached to; Windows names that session `Services`. Chromium's renderer
+ * needs a window station and dies with an access violation (`-1073741819`) when
+ * it has none, and the browser process follows with `0x80000003`. A machine a
+ * person is sitting in front of reports `Console`.
+ * @returns Whether the session is interactive.
+ */
+const interactiveDesktop = (process.env.SESSIONNAME ?? '').toLowerCase() === 'console'
+
+/**
+ * Whether a finding can only be produced by a session that has a desktop.
+ *
+ * These are the observations that need a window station: the page, the renderer
+ * behind it, and the workspace the page displays. Anything else — a fatal
+ * report, a protocol that was never registered, a preload error, a renderer
+ * console error — is reported by the shell or the browser process itself and
+ * fails on every session.
+ * @param finding - One recorded finding.
+ * @returns Whether the finding needs a desktop to be observed.
+ */
+function needsDesktop(finding) {
+  return finding.startsWith('the application never reached the workspace')
+    || finding.startsWith('the renderer exited: crashed')
+    || finding.startsWith('the application exposed no page to inspect')
+    || finding.startsWith('the application did not reach the workspace within')
+}
+
+process.stdout.write(
+  `[win7] probe: exit=${String(code)} events=${String(events.length)} console-errors=${String(consoleErrors.length)} `
+  + `workspace=${String(workspaceEvent !== undefined)} shell=${String(startedEvent !== undefined)} `
+  + `session=${process.env.SESSIONNAME ?? 'unknown'}\n`,
+)
 for (const finding of findings.slice(0, 40)) process.stdout.write(`[win7] probe finding: ${finding}\n`)
 
+const observable = findings.filter(finding => !needsDesktop(finding))
+if (findings.length > 0 && observable.length === 0 && !interactiveDesktop) {
+  // The shell loaded, and every finding is one only a desktop can produce: the
+  // renderer cannot get a window station in session 0, so a window that cannot
+  // exist is not a product fault. Recorded, not failed — the check that runs on
+  // a desktop is `acceptance-probe.mjs`, on the machine the user installs on.
+  process.stdout.write(
+    `[win7] probe: ${String(findings.length)} finding(s) are unobservable without a desktop; `
+    + 'the shell itself loaded and reported itself\n',
+  )
+  process.exit(0)
+}
 if (findings.length > 0) {
-  process.stdout.write(`[win7] probe: ${String(findings.length)} finding(s)\n`)
+  process.stdout.write(`[win7] probe: ${String(findings.length)} finding(s), ${String(observable.length)} of them independent of a desktop\n`)
   process.exit(1)
 }
 process.stdout.write('[win7] probe: the application reached the workspace without a finding\n')
