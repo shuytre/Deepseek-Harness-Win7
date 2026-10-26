@@ -115,8 +115,28 @@ function killTree(pid) {
 }
 
 note('starting the application')
+/**
+ * Environment the application is started with.
+ *
+ * A shell that itself runs inside an Electron-based tool inherits
+ * `ELECTRON_RUN_AS_NODE=1` and a host `NODE_OPTIONS`; both make the packaged
+ * executable behave as the Node runtime instead of as the application, so it
+ * exits before opening a window and the probe measures nothing. Neither belongs
+ * to a user's launch.
+ * @returns {Record<string, string | undefined>} Copy of the environment without them.
+ */
+function launchEnvironment() {
+  const environment = { ...process.env }
+  for (const name of Object.keys(environment)) {
+    const lower = name.toLowerCase()
+    if (lower === 'electron_run_as_node' || lower === 'node_options') delete environment[name]
+  }
+  return environment
+}
+
 const child = spawn(installed.executable, [`--remote-debugging-port=${String(debugPort)}`], {
   cwd: installed.directory,
+  env: launchEnvironment(),
   stdio: ['ignore', 'pipe', 'pipe'],
   windowsHide: false,
 })
@@ -144,6 +164,8 @@ async function waitForWindow() {
 }
 
 const target = await waitForWindow()
+/** What the window was read as; written to `page.json` for the report. */
+let observed
 if (target === undefined) {
   findings.push('the application opened no window that could be inspected')
   if (child.exitCode !== null) findings.push(`the application exited with ${String(child.exitCode)}`)
@@ -155,7 +177,7 @@ if (target === undefined) {
     await client.send('Runtime.enable')
     await new Promise(resolve => setTimeout(resolve, 4000))
     note('reading the window')
-    const observed = await client.evaluate(`(() => ({
+    observed = await client.evaluate(`(() => ({
       ready: document.readyState,
       title: document.title,
       url: location.href,
@@ -169,8 +191,8 @@ if (target === undefined) {
     if (observed === undefined || observed === null) {
       findings.push('the window could not be read')
     } else {
-      if (observed.ready !== 'complete' && state.ready !== 'interactive') {
-        findings.push(`the document is still ${String(state.ready)}`)
+      if (observed.ready !== 'complete' && observed.ready !== 'interactive') {
+        findings.push(`the document is still ${String(observed.ready)}`)
       }
       if (typeof observed.elements === 'number' && observed.elements < 10) {
         findings.push(`the document rendered only ${String(observed.elements)} element(s); the window is likely blank`)
@@ -235,7 +257,7 @@ if (target === undefined) {
 
 if (child.exitCode === null) killTree(child.pid)
 writeFileSync(logFile, Buffer.concat(chunks.map(chunk => Buffer.from(chunk))))
-writeFileSync(join(reportDirectory, 'page.json'), `${JSON.stringify(state ?? null, undefined, 2)}\n`)
+writeFileSync(join(reportDirectory, 'page.json'), `${JSON.stringify(observed ?? null, undefined, 2)}\n`)
 writeFileSync(reportFile, `${JSON.stringify({ at: new Date().toISOString(), application: installed.directory, steps, findings }, undefined, 2)}\n`)
 
 process.stdout.write(`\n[acceptance] ${String(findings.length)} finding(s)\n`)

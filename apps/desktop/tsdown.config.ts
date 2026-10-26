@@ -106,7 +106,26 @@ export default defineConfig([
     fixedExtension: false,
     dts: false,
     clean: false,
-    deps: { neverBundle: ['electron'] },
+    deps: {
+      neverBundle: ['electron'],
+      // The Windows 7 track emits CommonJS, and its runtime (Electron 22 / Node
+      // 16) refuses `require()` of an ES module with `ERR_REQUIRE_ESM` — the
+      // main process dies before `app.whenReady`, so the window never opens and
+      // nothing is logged. These two dependencies are `"type": "module"`, so on
+      // that track they are inlined into the bundle instead of required. The
+      // remaining dependencies (semver, ws, electron-updater, undici) are
+      // CommonJS and stay external. `check:win7-cjs` proves the result.
+      //
+      // The patterns are matched against the specifier as written, and the name
+      // pattern alone does not cover a subpath (`…/stream-protocol`), so each
+      // package is listed twice.
+      alwaysBundle: win7.enabled
+        ? [
+            '@deepseek-ai/cordis', '@deepseek-ai/cordis/**',
+            '@deepseek-ai/dsh-api-gateway', '@deepseek-ai/dsh-api-gateway/**',
+          ]
+        : [],
+    },
   },
   ...(['preload-app', 'preload-welcome', 'preload-platform-account', 'preload-mandatory', 'preload-update-dialog'] as const).map(name => ({
     // Sandboxed Electron preloads run as CommonJS even though the application package is ESM.

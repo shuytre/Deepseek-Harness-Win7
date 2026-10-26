@@ -301,13 +301,19 @@ const startedEvent = events.find(event => event.kind === 'start')
 
 const findings = []
 if (startedEvent === undefined) {
-  // The application never reached the point where it describes itself. A
-  // Windows Server runner has no interactive desktop, so a window that cannot
-  // be created is an environment limitation rather than a product fault; the
-  // probe reports it without failing the build.
-  process.stdout.write('[win7] probe: the application did not start; the runner has no desktop session\n')
-  for (const chunk of chunks) process.stdout.write(chunk.toString())
-  process.exit(0)
+  // The shell records `start` from its first product module, before it opens a
+  // window, registers a protocol, or reaches the backend. Writing one line
+  // needs no desktop, so a run with no `start` record never loaded the shell at
+  // all: the main bundle threw while being evaluated. That used to be read as
+  // "the runner has no desktop session" and passed, which is how an installer
+  // whose entry point could not load shipped. It fails here instead.
+  const stderr = chunks.map(chunk => chunk.toString()).join('').trim()
+  const diagnosticText = existsSync(diagnosticFile) ? readFileSync(diagnosticFile, 'utf8').trim() : ''
+  process.stdout.write(`[win7] probe: the application never loaded its shell (exit=${String(child.exitCode)})\n`)
+  if (stderr.length > 0) process.stdout.write(`[win7] probe: stderr\n${stderr.slice(-4000)}\n`)
+  if (diagnosticText.length > 0) process.stdout.write(`[win7] probe: diagnostic\n${diagnosticText.slice(0, 4000)}\n`)
+  writeFileSync(join(PROBE_DIRECTORY, 'probe.log'), Buffer.concat(chunks.map(chunk => Buffer.from(chunk))))
+  process.exit(1)
 }
 if (protocolEvent === undefined) findings.push('the application never registered its protocol')
 if (fatal !== undefined) findings.push(`the application failed to start: ${String(fatal.detail)}`)

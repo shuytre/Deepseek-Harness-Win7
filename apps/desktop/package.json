@@ -43,7 +43,8 @@
     "upload:latest:win:x64": "tsx scripts/upload-target.ts win-x64 --latest",
     "package:win7:x64": "tsx scripts/package-target.ts win-x64 --unsigned",
     "build:win7": "node win7/build-win7.mjs",
-    "check:win7-pe": "node win7/check/scan-pe-imports.mjs"
+    "check:win7-pe": "node win7/check/scan-pe-imports.mjs",
+    "check:win7-cjs": "node win7/check/check-cjs-externals.mjs"
   },
   "dependencies": {
     "semver": "^7.8.5",

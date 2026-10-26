@@ -326,6 +326,11 @@ async function main() {
   // reason for a build failure is visible on its own.
   await runStep('unused-imports', ['node', join('apps', 'desktop', 'win7', 'check', 'check-unused-imports.mjs')])
   await runStep('build', packageManagerCommand(['run', 'build']))
+  // A CommonJS bundle may hold only requires its runtime can load: Electron 22's
+  // Node 16 refuses `require()` of an ES module and aborts the main process
+  // before the window opens. The check reads the built bundles, so it runs
+  // after the build and before an installer can be assembled from them.
+  await runStep('cjs-externals', ['node', join('apps', 'desktop', 'win7', 'check', 'check-cjs-externals.mjs')])
   // The Windows 7 API floors are checked before packaging: an API the Windows
   // 7 runtime does not have is `undefined` there, so the call site throws
   // while the shell is still starting. A Windows Server runner has the newer

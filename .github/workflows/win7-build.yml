@@ -60,6 +60,19 @@ jobs:
           path: .desktop-build/downloads
           key: win7-runtime-downloads-v1-${{ runner.os }}
 
+      # electron-builder keeps its own archives apart from the runtime payload:
+      # the Electron 22 distribution, the NSIS toolchain and the winCodeSign
+      # bundle. They are re-downloaded on every run without this cache, and the
+      # packaging step is the longest one in the job.
+      - name: Cache the electron-builder toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-toolchain-${{ runner.os }}-win7-v1
+          restore-keys: electron-toolchain-${{ runner.os }}-
+
       - name: Show the payload the build will use
         shell: pwsh
         run: |
@@ -107,6 +120,13 @@ jobs:
 
       - name: Build the Windows 7 installer
         shell: pwsh
+        # The TypeScript pass and the bundler are the CPU-bound part of the job.
+        # A larger heap removes the GC stalls that cost more than the memory it
+        # reserves, and the thread pool keeps libuv's file work off the main
+        # thread while the bundler is busy.
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+          UV_THREADPOOL_SIZE: '8'
         run: |
           if ('${{ inputs.signed }}' -eq 'true') {
             pnpm build:win7 -- --skip-install --signed
