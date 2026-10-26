@@ -80,10 +80,18 @@ export type CompatFetch = (input: string, init?: RequestInit) => Promise<Respons
  * `session.fetch`, so the request goes through `net.request` with an explicit
  * cookie jar: the loopback Host authenticates with `Set-Cookie`, and the jar
  * replays those cookies for `credentials: 'include'`.
+ *
+ * The Host's launch URL answers 303 with the authentication cookie, and it is
+ * exchanged through the main process's own `fetch` rather than through this
+ * transport — on the ordinary track that is Chromium and the cookie lands in the
+ * session; here it is `undici`, which has no session to write to. The cookie the
+ * exchange produced is therefore handed in directly so the first request this
+ * transport makes already carries it.
  * @param browserSession - Session that owns the cookie jar.
+ * @param authentication - Cookie header the Host issued, when it is known.
  * @returns Fetch-compatible function.
  */
-export function createCompatFetch(browserSession: Session): CompatFetch {
+export function createCompatFetch(browserSession: Session, authentication?: string): CompatFetch {
   const netModule = getElectronModule() as {
     net: { fetch?: (input: string, init?: RequestInit) => Promise<Response>, request(options: unknown): CompatRequest }
   }
@@ -91,6 +99,11 @@ export function createCompatFetch(browserSession: Session): CompatFetch {
     return (input, init) => netModule.net.fetch!(input, init)
   }
   const jar = new Map<string, string>()
+  for (const pair of (authentication ?? '').split(';')) {
+    const separator = pair.indexOf('=')
+    if (separator <= 0) continue
+    jar.set(pair.slice(0, separator).trim(), pair.slice(separator + 1).trim())
+  }
   return async (input, init) => {
     const url = new URL(input)
     const method = init?.method ?? 'GET'
@@ -101,7 +114,12 @@ export function createCompatFetch(browserSession: Session): CompatFetch {
       for (const cookie of stored) jar.set(cookie.name, cookie.value)
       if (jar.size > 0) headers.cookie = [...jar].map(([name, value]) => `${name}=${value}`).join('; ')
     }
-    const request = netModule.net.request({ method, url: url.href, redirect: 'manual' })
+    // Fetch follows redirects by default, and `net.request` does not: it asks
+    // what to do through a `redirect` event and, when the request was set to
+    // `manual` with no listener, cancels it with "Redirect was cancelled". The
+    // Host answers its launch URL with a redirect, so the mode has to travel.
+    const redirect = init?.redirect ?? 'follow'
+    const request = netModule.net.request({ method, url: url.href, redirect })
     for (const [name, value] of Object.entries(headers)) request.setHeader(name, value)
     const signal = init?.signal
     return await new Promise<Response>((resolvePromise, rejectPromise) => {
@@ -109,6 +127,24 @@ export function createCompatFetch(browserSession: Session): CompatFetch {
       const abort = (): void => { request.abort(); rejectPromise(new Error(`desktop net fetch: aborted ${url.href}`)) }
       if (signal?.aborted === true) abort()
       else signal?.addEventListener('abort', abort, { once: true })
+      if (redirect === 'manual') {
+        // A `manual` request answers with the redirect itself, which is what
+        // `Response.redirected === false` plus a 3xx status means to a caller.
+        request.on('redirect', (statusCode, _redirectMethod, redirectUrl, redirectHeaders) => {
+          signal?.removeEventListener('abort', abort)
+          resolvePromise(compatResponse({
+            status: statusCode,
+            statusText: '',
+            url: redirectUrl,
+            headers: (name: string) => {
+              const value = redirectHeaders[name.toLowerCase()]
+              return Array.isArray(value) ? (value[0] ?? null) : value ?? null
+            },
+            body: Buffer.alloc(0),
+          }) as unknown as Response)
+          request.abort()
+        })
+      }
       request.on('response', (response) => {
         const status = response.statusCode
         const responseHeaders = response.headers
@@ -146,6 +182,15 @@ interface CompatRequest {
   setHeader(name: string, value: string): void
   on(event: 'response', listener: (response: CompatIncoming) => void): void
   on(event: 'error', listener: (error: Error) => void): void
+  on(
+    event: 'redirect',
+    listener: (
+      statusCode: number,
+      method: string,
+      redirectUrl: string,
+      headers: Record<string, string | string[] | undefined>,
+    ) => void,
+  ): void
   write(chunk: string): void
   end(): void
   abort(): void

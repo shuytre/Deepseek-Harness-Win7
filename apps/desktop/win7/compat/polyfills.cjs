@@ -350,6 +350,88 @@ function installSystemErrorMessage() {
   })
 }
 
+/**
+ * Install `DOMException` (global since Node 17).
+ *
+ * `undici` 5 subclasses it while its WebSocket stream module evaluates, so a
+ * runtime without the global cannot load the fetch stack at all. The codes are
+ * the legacy WebIDL ones: `AbortSignal` reasons and fetch failures are matched
+ * by `name`, and a few call sites still read `code`.
+ */
+function installDomException() {
+  if (typeof globalThis.DOMException === 'function') return
+  const codes = {
+    IndexSizeError: 1,
+    HierarchyRequestError: 3,
+    WrongDocumentError: 4,
+    InvalidCharacterError: 5,
+    NoModificationAllowedError: 7,
+    NotFoundError: 8,
+    NotSupportedError: 9,
+    InvalidStateError: 11,
+    SyntaxError: 12,
+    InvalidModificationError: 13,
+    NamespaceError: 14,
+    InvalidAccessError: 15,
+    TypeMismatchError: 17,
+    SecurityError: 18,
+    NetworkError: 19,
+    AbortError: 20,
+    URLMismatchError: 21,
+    QuotaExceededError: 22,
+    TimeoutError: 23,
+    InvalidNodeTypeError: 24,
+    DataCloneError: 25,
+  }
+  class DOMExceptionFallback extends Error {
+    constructor(message, name) {
+      super(message === undefined ? '' : String(message))
+      Object.defineProperty(this, 'name', {
+        configurable: true,
+        writable: true,
+        value: name === undefined ? 'Error' : String(name),
+      })
+    }
+    get code() {
+      return codes[this.name] === undefined ? 0 : codes[this.name]
+    }
+  }
+  Object.defineProperty(globalThis, 'DOMException', { configurable: true, writable: true, value: DOMExceptionFallback })
+}
+
+/**
+ * Install `Blob` (global since Node 18) and `File` (Node 20).
+ *
+ * `undici` 5 reads `globalThis.Blob` while its own module body evaluates, so a
+ * runtime without the global fails to load the fetch stack at all — from a
+ * `profiles/desktop/node_modules/undici` copy the failure reads
+ * `ReferenceError: Blob is not defined` and the Host exits 1. Node 16 does export
+ * a `Blob` from `node:buffer`; it is only the global that is missing.
+ */
+function installBlob() {
+  if (typeof globalThis.Blob !== 'function') {
+    try {
+      const { Blob } = require('node:buffer')
+      if (typeof Blob === 'function') {
+        Object.defineProperty(globalThis, 'Blob', { configurable: true, writable: true, value: Blob })
+      }
+    } catch {
+      // A runtime with neither a global nor a buffer export keeps its own fetch.
+    }
+  }
+  if (typeof globalThis.File !== 'function' && typeof globalThis.Blob === 'function') {
+    const BlobBase = globalThis.Blob
+    class FileFallback extends BlobBase {
+      constructor(parts, name, options) {
+        super(parts, options)
+        this.name = String(name)
+        this.lastModified = options === undefined || options.lastModified === undefined ? Date.now() : options.lastModified
+      }
+    }
+    Object.defineProperty(globalThis, 'File', { configurable: true, writable: true, value: FileFallback })
+  }
+}
+
 /** Install a global `fetch` stack from undici 5 when the runtime lacks one (Node 16). */function installFetchStack() {
   if (typeof globalThis.fetch === 'function' && typeof globalThis.Response === 'function') return false
   let undici
@@ -546,6 +628,10 @@ function installWin7Polyfills() {
   installBufferHelpers()
   installAddAbortListener()
   installSystemErrorMessage()
+  // `DOMException` and `Blob` have to precede the fetch stack: undici 5 reads
+  // both globals while its own module bodies evaluate.
+  installDomException()
+  installBlob()
   const fetchInstalled = installFetchStack()
   const webSocketInstalled = installWebSocket()
   return {
