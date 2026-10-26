@@ -316,6 +316,16 @@ if (startedEvent === undefined) {
   process.exit(1)
 }
 if (protocolEvent === undefined) findings.push('the application never registered its protocol')
+// The shell answers its own document through the same handler and the same
+// Electron 22 response bridge the window uses, from the main process. That is the
+// only place a broken bridge can be seen without a desktop: to Chromium it is
+// just net error -2 and an empty page.
+const selfCheck = events.find(event => event.kind === 'protocol-selfcheck')
+if (selfCheck === undefined) {
+  findings.push('the application never answered its own document')
+} else if (!/^status=200 bytes=[1-9]/u.test(String(selfCheck.detail))) {
+  findings.push(`the application could not answer its own document: ${String(selfCheck.detail)}`)
+}
 if (fatal !== undefined) findings.push(`the application failed to start: ${String(fatal.detail)}`)
 if (workspaceEvent === undefined && fatal === undefined) {
   findings.push('the application never reached the workspace')

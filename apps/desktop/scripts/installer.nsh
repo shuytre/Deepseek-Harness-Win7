@@ -30,13 +30,18 @@ ManifestDPIAware true
 !macroend
 
 !macro customInit
+  StrCpy $InstallerPhase "init"
   ${If} ${isForAllUsers}
+    StrCpy $InstallerError "the installer is per-user only, and this run asked for all users"
+    Call InstallerLog
     MessageBox MB_OK|MB_ICONEXCLAMATION "$(INSTALLER_PER_USER)" /SD IDOK
     SetErrorLevel 2
     Quit
   ${EndIf}
   ReadRegStr $0 HKLM "${INSTALL_REGISTRY_KEY}" InstallLocation
   ${If} $0 != ""
+    StrCpy $InstallerError "a per-machine installation exists at $0"
+    Call InstallerLog
     MessageBox MB_OK|MB_ICONEXCLAMATION "$(INSTALLER_PER_USER)" /SD IDOK
     SetErrorLevel 2
     Quit
@@ -68,8 +73,12 @@ ManifestDPIAware true
   File "/oname=$PLUGINSDIR\window-frame.dll" "${INSTALLER_BUILD_DIR}\window-frame.dll"
   Call InstallerCheckAppRunning
   ${If} ${Silent}
+    ; The silent path refuses before any window exists, so the reason it chose
+    ; has to survive in the log: nothing else is shown and nothing else is left.
+    StrCpy $InstallerPhase "init"
     Call InstallerPreflight
     ${If} $InstallerError != ""
+      Call InstallerLog
       SetErrorLevel 2
       Quit
     ${EndIf}

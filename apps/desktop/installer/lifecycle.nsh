@@ -3,6 +3,24 @@ Var InstallerProgressWindow
 ; composition (Windows 7 Basic/Classic themes), where the stock NSIS chrome runs.
 Var InstallerNativeFrame
 
+; Every refusal below sets an error level and quits, and `/S` suppresses the
+; message it would have shown: a silent install that fails leaves nothing behind
+; to read. The reason and the phase also go to this file, which the install check
+; copies into the build's diagnostics.
+!define INSTALLER_LOG_FILE "$TEMP\deepseek-harness-installer.log"
+
+; Append the current phase and reason to the installer log.
+Function InstallerLog
+    Push $9
+    ClearErrors
+    FileOpen $9 "${INSTALLER_LOG_FILE}" a
+    IfErrors installer_log_done
+    FileWrite $9 "$InstallerPhase | $InstallerError$\r$\n"
+installer_log_done:
+    FileClose $9
+    Pop $9
+FunctionEnd
+
 Function InstallerGuiInit
     HideWindow
     System::Call 'user32::GetDC(p $HWNDPARENT) p.r0'
@@ -52,6 +70,7 @@ Function InstallerBeforeInstall
     SetAutoClose true
     Call InstallerPreflight
     ${If} $InstallerError != ""
+        Call InstallerLog
         MessageBox MB_OK|MB_ICONEXCLAMATION "$InstallerError" /SD IDOK
         SetErrorLevel 2
         Quit
@@ -85,6 +104,10 @@ Function InstallerProgressShow
 FunctionEnd
 
 Function .onInstFailed
+    ; The extraction or the copy failed; the reason is NSIS's own error state,
+    ; which the log keeps because the message box is suppressed under `/S`.
+    StrCpy $InstallerError "installation failed (NSIS error state kept by the log)"
+    Call InstallerLog
     MessageBox MB_OK|MB_ICONEXCLAMATION "$(INSTALLER_FAILED)" /SD IDOK
     SetErrorLevel 2
     Quit

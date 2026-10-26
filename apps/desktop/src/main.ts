@@ -39,7 +39,7 @@ import { DesktopCommandManager } from './command-management.ts'
 import { serveWebDocument, authenticateWebHost, forwardWebRequest } from './web-document.ts'
 import { DesktopFatalRecovery } from './fatal-recovery.ts'
 import { pruneCrashReports, RendererConsoleTail, writeCrashReport, type CrashReportSource } from './crash-report.ts'
-import { applyTitleBarOverlayCompat, createCompatFetch, handleProtocolCompat, loadWin7MainProcessPolyfills, readConsoleMessage } from './win7/api-compat.ts'
+import { applyTitleBarOverlayCompat, createCompatFetch, handleProtocolCompat, loadWin7MainProcessPolyfills, probeProtocolBridge, readConsoleMessage } from './win7/api-compat.ts'
 import { createSessionReporter, sessionReportFile } from './win7/session-report.ts'
 
 // The Windows 7 track runs this bundle under Electron 22's Node 16, which lacks
@@ -720,7 +720,8 @@ async function main(): Promise<void> {
   })
 
   sessionReport.record('protocol', `registered ${SCHEME}`)
-  handleProtocolCompat(SCHEME, (request) => {
+  /** Answer one request on the application scheme. */
+  const serveApplication = (request: Request): Response | Promise<Response> => {
     const url = new URL(request.url)
     // Shell-owned documents live in the application bundle and never pass through the Host.
     if (url.hostname === 'shell') return serveWebDocument(request, join(app.getAppPath(), 'renderer'))
@@ -735,7 +736,25 @@ async function main(): Promise<void> {
       return forwardWebRequest(request, hostUrl, hostCookie)
     }
     return Promise.resolve(new Response(null, { status: 404 }))
-  })
+  }
+  handleProtocolCompat(SCHEME, serveApplication)
+
+  // Serving the window's own document is the one thing the shell must do before a
+  // renderer can exist, and a failure here reaches Chromium only as net error -2:
+  // the window stays empty and says nothing. Answering a synthetic request through
+  // the same handler and the same Electron 22 response bridge names the failure in
+  // the session report, and needs no desktop to run.
+  if (sessionReportFile() !== undefined) {
+    void (async () => {
+      try {
+        const response = await serveApplication(new Request(`${SCHEME}://app/`))
+        const { status, bytes } = await probeProtocolBridge(response)
+        sessionReport.record('protocol-selfcheck', `status=${String(status)} bytes=${String(bytes)}`)
+      } catch (error) {
+        sessionReport.record('protocol-selfcheck', `failed: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`)
+      }
+    })()
+  }
 
   installDesktopDirectoryPicker(() => mainWindow)
   installMicrophonePermissions(session.defaultSession, () => mainWindow?.webContents)

@@ -235,6 +235,19 @@ export function closeWebContentsCompat(contents: WebContents): void {
 /** Handler shape the Desktop shell registers for its application scheme. */
 export type ProtocolHandler = (request: Request) => Response | Promise<Response>
 
+/**
+ * Record why a protocol request could not be answered.
+ *
+ * The polyfill preload installs `globalThis.__DSH_WIN7_TRACE__` on this track;
+ * on the ordinary track nothing is installed and stderr carries the line.
+ * @param detail - One-line description of the failure.
+ */
+function recordProtocolFailure(detail: string): void {
+  const trace = (globalThis as { __DSH_WIN7_TRACE__?: (stage: string) => void }).__DSH_WIN7_TRACE__
+  if (typeof trace === 'function') trace(`protocol failure: ${detail}`)
+  console.error(`[desktop protocol] ${detail}`)
+}
+
 /** Electron 22 `ProtocolRequest` shape. */
 interface CompatProtocolRequest {
   readonly url: string
@@ -295,6 +308,11 @@ export function handleProtocolCompat(scheme: string, handler: ProtocolHandler): 
         const response = await handler(bridgeProtocolRequest(request))
         callback(await bridgeProtocolResponse(response))
       } catch (error) {
+        // Chromium only ever learns the net error number, so the reason has to
+        // be written where a diagnostic can read it: the track's trace sink
+        // (installed by the polyfills) and stderr.
+        const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+        recordProtocolFailure(`${request.url} ${message}`)
         // Electron 22 reports a failed protocol load through the `error`
         // number of the response, which is the net error list value for a
         // failed fetch (-2).
@@ -333,6 +351,13 @@ function bridgeProtocolRequest(request: CompatProtocolRequest): Request {
  * ended, and the window would show nothing while it waited. Electron 22's
  * protocol accepts a Node readable stream for exactly this reason.
  *
+ * The bridge from a web stream to a Node one cannot be `Readable.fromWeb`:
+ * that arrived in Node 17, and the Windows 7 track runs Node 16.17 inside
+ * Electron 22. Calling it there threw `Readable.fromWeb is not a function`,
+ * which the protocol registration turns into net error -2 and the window shows
+ * as `ERR_FAILED` on an otherwise empty page. The reader bridge below is the
+ * Node 16 equivalent; the native conversion is still preferred where it exists.
+ *
  * The length is not known in advance, so the response carries no
  * `content-length`, and the length the Host sent is dropped for the same
  * reason.
@@ -346,10 +371,67 @@ async function bridgeProtocolResponse(response: Response): Promise<CompatProtoco
   if (response.body === null) {
     return { statusCode: response.status, headers, data: Buffer.alloc(0) }
   }
-  // The body is a web stream and the protocol wants a Node one; `fromWeb`
-  // is available in the Node 16 release the track ships.
-  const stream = Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0])
-  return { statusCode: response.status, headers, data: stream }
+  return { statusCode: response.status, headers, data: toNodeReadable(response.body) }
+}
+
+/** Node's own web-stream conversion, present from Node 17. */
+interface WebStreamConvertible {
+  fromWeb?: (stream: unknown) => Readable
+}
+
+/** The part of a web stream reader this bridge uses. */
+interface WebStreamReader {
+  read(): Promise<{ done: boolean; value?: Uint8Array }>
+  releaseLock(): void
+}
+
+/** The part of a web stream this bridge uses. */
+interface ReadableWebStream {
+  getReader(): WebStreamReader
+}
+
+/**
+ * Turn a web `ReadableStream` into a Node writable-consumable stream.
+ * @param body - Web stream the handler answered with.
+ * @returns Node readable stream carrying the same bytes.
+ */
+function toNodeReadable(body: ReadableStream<Uint8Array>): Readable {
+  const native = (Readable as unknown as WebStreamConvertible).fromWeb
+  if (typeof native === 'function') return native(body)
+  const reader = (body as unknown as ReadableWebStream).getReader()
+  return Readable.from((async function* pump(): AsyncGenerator<Buffer> {
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) return
+        if (value !== undefined) yield Buffer.from(value)
+      }
+    } finally {
+      reader.releaseLock()
+    }
+  })())
+}
+
+/**
+ * Serve one synthetic request through the same bridge the protocol uses.
+ *
+ * The protocol's failure path can only report a net error number to Chromium,
+ * so a bundle that cannot answer its own document leaves the window blank with
+ * nothing to read. This runs the handler and the Electron 22 response bridge in
+ * the main process, where a failure can still be named.
+ * @param response - Response the application handler produced.
+ * @returns Status and body length the protocol would have delivered.
+ */
+export async function probeProtocolBridge(response: Response): Promise<{ status: number; bytes: number }> {
+  const bridged = await bridgeProtocolResponse(response)
+  const { data } = bridged
+  const status = bridged.statusCode ?? 200
+  if (data === undefined) return { status, bytes: 0 }
+  if (typeof data === 'string') return { status, bytes: Buffer.byteLength(data) }
+  if (Buffer.isBuffer(data)) return { status, bytes: data.length }
+  let bytes = 0
+  for await (const chunk of data) bytes += Buffer.byteLength(chunk as Buffer)
+  return { status, bytes }
 }
 
 /**

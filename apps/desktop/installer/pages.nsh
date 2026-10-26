@@ -46,7 +46,9 @@ Function InstallerCreate
     StrCpy $InstallerGdiToken $1
     System::Free $0
     ${If} $2 != 0
-        MessageBox MB_OK|MB_ICONSTOP "$(INSTALLER_UI_ERROR)"
+        StrCpy $InstallerError "GDI+ could not start (code $2)"
+        Call InstallerLog
+        MessageBox MB_OK|MB_ICONSTOP "$(INSTALLER_UI_ERROR)" /SD IDOK
         SetErrorLevel 2
         Quit
     ${EndIf}
