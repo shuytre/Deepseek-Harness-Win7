@@ -30,12 +30,19 @@ export const DESKTOP_RUNTIME_DEPENDENCY_OVERRIDES: Readonly<Record<string, strin
  * `engines` floor is newer than 16 fails to load there:
  *   - `execa@10` declares `node >= 22`; `execa@8.0.1` declares `>= 16.17`.
  *   - `undici@6` declares `node >= 18.17`; `undici@5.28.5` declares `>= 14`.
+ *   - `undici@7` and `undici@8` do the same, and they also read runtime APIs
+ *     Node 16 does not have while their own module bodies evaluate: eight
+ *     reached `zlib.createZstdDecompress.bind(...)`, which threw
+ *     "Cannot read properties of undefined (reading 'bind')" and took the fetch
+ *     stack — and the Host — down before any request was made.
  * Keep this list limited to floors that are actually unmeetable, and re-check
  * it whenever the workspace bumps one of these packages.
  */
 export const DESKTOP_WIN7_DEPENDENCY_OVERRIDES: Readonly<Record<string, string>> = {
   'execa@^10.0.1': '8.0.1',
-  'undici@^6.6.0': '5.28.5',
+  // A bare name pins every range: the ranges that matter are transitive peers
+  // (`>=5 <9`, `8.10.2`, `7.29.1`), which change with the workspace.
+  'undici': '5.28.5',
 }
 
 /**

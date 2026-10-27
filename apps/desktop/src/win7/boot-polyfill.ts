@@ -1,8 +1,9 @@
 /**
  * Renderer polyfills injected into the boot script.
  *
- * Chromium 108 in Electron 22 lacks `Promise.withResolvers` (Chrome 119) and
- * the copy-free array helpers (Chrome 110), and the client bundle uses both —
+ * Chromium 108 in Electron 22 lacks `Promise.withResolvers` (Chrome 119), the
+ * copy-free array helpers (Chrome 110), `URL.parse` (126) and
+ * `String.prototype.toWellFormed` (111), and the client bundle uses them —
  * `web-document.ts` itself composes `__DSH_BOOT_READY__` from
  * `Promise.withResolvers`. `structuredClone` (Chrome 98), `:has()` (105) and
  * container queries (105) are already present and stay untouched.
@@ -77,6 +78,29 @@ export const WIN7_BOOT_POLYFILL_SOURCE = `(function(){
     if (typeof Array.prototype[name] === 'function') return;
     Object.defineProperty(Array.prototype, name, { configurable: true, writable: true, value: arrayMethods[name] });
   });
+  if (typeof URL.parse !== 'function') {
+    Object.defineProperty(URL, 'parse', { configurable: true, writable: true, value: function (input, base) {
+      try { return new URL(input, base); } catch (error) { return null; }
+    } });
+  }
+  if (typeof String.prototype.toWellFormed !== 'function') {
+    Object.defineProperty(String.prototype, 'toWellFormed', { configurable: true, writable: true, value: function () {
+      var text = String(this);
+      var result = '';
+      for (var index = 0; index < text.length; index += 1) {
+        var code = text.charCodeAt(index);
+        if (code >= 0xD800 && code <= 0xDBFF) {
+          var next = text.charCodeAt(index + 1);
+          if (next >= 0xDC00 && next <= 0xDFFF) { result += text[index] + text[index + 1]; index += 1; }
+          else { result += '\uFFFD'; }
+          continue;
+        }
+        if (code >= 0xDC00 && code <= 0xDFFF) { result += '\uFFFD'; continue; }
+        result += text[index];
+      }
+      return result;
+    } });
+  }
   if (typeof URL.canParse !== 'function') {
     Object.defineProperty(URL, 'canParse', { configurable: true, writable: true, value: function (input, base) {
       try { void new URL(input, base); return true; } catch (error) { return false; }

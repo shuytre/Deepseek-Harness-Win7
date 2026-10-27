@@ -94,6 +94,34 @@ function installStructuredClone() {
   })
 }
 
+/**
+ * Install the zstd entry points `zlib` gained in Node 22.
+ *
+ * The shipped `undici` reads them while its decompression interceptor evaluates,
+ * through `createZstdDecompress.bind(...)`. A runtime without the binding throws
+ * "Cannot read properties of undefined (reading 'bind')" at module load, which
+ * takes the whole fetch stack — and the Host — down with it. The stub keeps the
+ * module loadable; a zstd-encoded response still fails, loudly and only itself.
+ */
+function installZlibZstdStubs() {
+  const zlib = require('node:zlib')
+  const unavailable = (what) => function zstdUnavailable() {
+    throw new Error(`zstd ${what} is not available in this runtime`)
+  }
+  for (const [name, what] of [
+    ['createZstdDecompress', 'decompression'],
+    ['createZstdCompress', 'compression'],
+    ['zstdDecompressSync', 'decompression'],
+    ['zstdCompressSync', 'compression'],
+  ]) {
+    if (typeof zlib[name] === 'function') continue
+    Object.defineProperty(zlib, name, { configurable: true, writable: true, value: unavailable(what) })
+  }
+  if (zlib.constants !== undefined && zlib.constants.ZSTD_d_windowLogMax === undefined) {
+    Object.defineProperty(zlib.constants, 'ZSTD_d_windowLogMax', { configurable: true, writable: true, value: 0 })
+  }
+}
+
 /** Install `URL.canParse` (Node 19.9). */
 function installUrlCanParse() {
   if (typeof URL.canParse === 'function') return
@@ -110,6 +138,71 @@ function installUrlCanParse() {
       }
     },
   })
+}
+
+/**
+ * Install `URL.parse` (Node 22.1).
+ *
+ * It differs from `canParse` by returning the parsed URL, and from `new URL` by
+ * returning null instead of throwing. Shipped code uses it to read a public URL
+ * out of configuration, so without it the Host answers its boot request with a
+ * TypeError and the window stays on its boot screen.
+ */
+function installUrlParse() {
+  if (typeof URL.parse === 'function') return
+  Object.defineProperty(URL, 'parse', {
+    configurable: true,
+    writable: true,
+    value: function parse(input, base) {
+      try {
+        return new URL(input, base)
+      } catch {
+        return null
+      }
+    },
+  })
+}
+
+/** Install `String.prototype.toWellFormed` / `isWellFormed` (Node 20 / Chrome 111). */
+function installWellFormedStrings() {
+  if (typeof String.prototype.toWellFormed !== 'function') {
+    Object.defineProperty(String.prototype, 'toWellFormed', {
+      configurable: true,
+      writable: true,
+      value: function toWellFormed() {
+        const text = String(this)
+        let result = ''
+        for (let index = 0; index < text.length; index += 1) {
+          const code = text.charCodeAt(index)
+          if (code >= 0xD800 && code <= 0xDBFF) {
+            const next = text.charCodeAt(index + 1)
+            if (next >= 0xDC00 && next <= 0xDFFF) {
+              result += text[index] + text[index + 1]
+              index += 1
+            } else {
+              result += '\uFFFD'
+            }
+            continue
+          }
+          if (code >= 0xDC00 && code <= 0xDFFF) {
+            result += '\uFFFD'
+            continue
+          }
+          result += text[index]
+        }
+        return result
+      },
+    })
+  }
+  if (typeof String.prototype.isWellFormed !== 'function') {
+    Object.defineProperty(String.prototype, 'isWellFormed', {
+      configurable: true,
+      writable: true,
+      value: function isWellFormed() {
+        return this.toWellFormed() === String(this)
+      },
+    })
+  }
 }
 
 /** Install `os.availableParallelism` (Node 18.14). */
@@ -621,7 +714,10 @@ function installWin7Polyfills() {
   installAbortSignalHelpers()
   installStructuredClone()
   installWebCrypto()
+  installZlibZstdStubs()
   installUrlCanParse()
+  installUrlParse()
+  installWellFormedStrings()
   installAvailableParallelism()
   installArrayChangeMethods()
   installGlobSync()
