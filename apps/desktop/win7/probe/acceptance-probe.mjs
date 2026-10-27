@@ -200,6 +200,11 @@ if (target === undefined) {
       if (typeof observed.text === 'string' && observed.text.trim().length === 0) {
         findings.push('the document has no visible text')
       }
+      // The workspace mounts only when the client modules resolve; a window
+      // still on its loading screen is that failure, seen from the outside.
+      if (typeof observed.text === 'string' && /Loading plugins/u.test(observed.text)) {
+        findings.push('the window is still on its loading screen; the client modules did not activate')
+      }
     }
     const image = await client.screenshot().catch(() => undefined)
     if (image !== undefined && image.length > 0) {

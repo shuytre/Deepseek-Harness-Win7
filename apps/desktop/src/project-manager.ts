@@ -68,15 +68,16 @@ function workspaceFile(overrides: Readonly<Record<string, string>> = {}): string
  * entries are left alone: the profile's own installation wins where it has one.
  * @param profileDir - Desktop profile directory.
  * @param runtimeDsh - Shipped runtime directory holding `node_modules`.
- * @returns How many packages were linked.
+ * @returns How many packages were linked and how many the profile can resolve.
  */
-export function linkShippedPackages(profileDir: string, runtimeDsh: string): number {
+export function linkShippedPackages(profileDir: string, runtimeDsh: string): { linked: number; shipped: number; available: number } {
   const shippedScope = join(runtimeDsh, 'node_modules', '@deepseek-ai')
-  if (!existsSync(shippedScope)) return 0
+  if (!existsSync(shippedScope)) return { linked: 0, shipped: 0, available: 0 }
   const profileScope = join(profileDir, 'node_modules', '@deepseek-ai')
   mkdirSync(profileScope, { recursive: true })
+  const shipped = readdirSync(shippedScope)
   let linked = 0
-  for (const name of readdirSync(shippedScope)) {
+  for (const name of shipped) {
     const target = join(profileScope, name)
     if (existsSync(target)) continue
     const source = join(shippedScope, name)
@@ -90,7 +91,8 @@ export function linkShippedPackages(profileDir: string, runtimeDsh: string): num
       // from the runtime tree; the link is an improvement, not a requirement.
     }
   }
-  return linked
+  const available = shipped.filter(name => existsSync(join(profileScope, name))).length
+  return { linked, shipped: shipped.length, available }
 }
 
 function migrateProfileSettings(projectDir: string): void {  const path = join(projectDir, 'pnpm-workspace.yaml')
@@ -123,9 +125,10 @@ export class DesktopProjectManager {
 
   /**
    * Load application metadata and prepare the external plugin profile without installing packages.
+   * @returns How many shipped packages the profile can resolve.
    */
-  async applyRelease(): Promise<void> {
-    await this.withLock(() => {
+  async applyRelease(): Promise<number> {
+    return await this.withLock(() => {
       // Validation only: an unreadable or mismatched runtime descriptor stops preparation before the Host starts.
       readDesktopRuntime(this.runtime.dsh)
       migrateProfileSettings(this.paths.profile)
@@ -133,7 +136,7 @@ export class DesktopProjectManager {
       removeLinkProjections(this.paths.profile)
       // The profile must resolve the shipped packages before the walk reaches
       // the user's own installation of the same name.
-      linkShippedPackages(this.paths.profile, this.runtime.dsh)
+      return linkShippedPackages(this.paths.profile, this.runtime.dsh).available
     })
   }
 

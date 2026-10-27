@@ -316,6 +316,19 @@ if (startedEvent === undefined) {
   process.exit(1)
 }
 if (protocolEvent === undefined) findings.push('the application never registered its protocol')
+// The profile has to resolve the shipped packages: a profile that cannot is a
+// profile whose plugins run another release of the product, and the browser
+// then gets client bundles this build never produced. The shell counts them
+// while preparing the profile, before the Host starts.
+const profileEvent = events.find(event => event.kind === 'profile')
+if (profileEvent === undefined) {
+  findings.push('the application did not report the profile it prepared')
+} else {
+  const resolvable = Number.parseInt(/(\d+)/u.exec(String(profileEvent.detail))?.[1] ?? '0', 10)
+  if (!Number.isSafeInteger(resolvable) || resolvable <= 0) {
+    findings.push(`the profile resolves no shipped package: ${String(profileEvent.detail)}`)
+  }
+}
 // The shell answers its own document through the same handler and the same
 // Electron 22 response bridge the window uses, from the main process. That is the
 // only place a broken bridge can be seen without a desktop: to Chromium it is

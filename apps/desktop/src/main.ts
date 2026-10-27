@@ -628,7 +628,10 @@ async function main(): Promise<void> {
     startup ??= (async () => {
       await navigateMain(applicationUrl)
       await backend.start(async () => {
-        await Promise.all([manager.applyRelease(), prepareHostEnvironment()])
+        const [shippedPackages] = await Promise.all([manager.applyRelease(), prepareHostEnvironment()])
+        // The profile resolves the shipped packages; a profile that cannot is a
+        // profile whose plugins would run another release of the product.
+        sessionReport.record('profile', `shipped packages resolvable from the profile: ${String(shippedPackages)}`)
       })
       if (backend.host !== undefined) await openInitialWindow()
       if (backend.host !== undefined) updateJournal?.action('workspace-ready')

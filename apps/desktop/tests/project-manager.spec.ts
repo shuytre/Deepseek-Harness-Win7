@@ -346,7 +346,10 @@ describe('desktop shipped package links', () => {
     mkdirSync(join(profile, 'node_modules', '@deepseek-ai', 'dsh'), { recursive: true })
     writeFileSync(join(profile, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'), '{"name":"@deepseek-ai/dsh","version":"0.9.0"}\n')
 
-    expect(linkShippedPackages(profile, runtime)).toBe(1)
+    const result = linkShippedPackages(profile, runtime)
+    expect(result.linked).toBe(1)
+    expect(result.shipped).toBe(2)
+    expect(result.available).toBe(2)
 
     const scope = join(profile, 'node_modules', '@deepseek-ai')
     expect(readFileSync(join(scope, 'dsh', 'package.json'), 'utf8')).toContain('0.9.0')

@@ -116,12 +116,12 @@ function resolveFromProfile(specifier) {
     profileRequire ??= createRequire(join(process.cwd(), 'package.json'))
     const resolved = profileRequire.resolve(specifier)
     // The fallback exists for the plugins the user installed into this profile,
-    // and for nothing else. Node's CommonJS resolution also reaches the npm
-    // global folder, where the user's own installation of the same product
-    // lives; serving that copy made the Host run another release of itself,
-    // with client bundles this build never produced. A resolution outside the
-    // profile is therefore refused.
-    if (!isInside(process.cwd(), resolved)) {
+    // and for the packages beside the application, which the profile is not an
+    // ancestor of. Node's CommonJS resolution also reaches the npm global
+    // folder, where the user's own installation of the same product lives;
+    // serving that copy made the Host run another release of itself, with
+    // client bundles this build never produced. Nothing else may answer.
+    if (isForeignInstallation(resolved)) {
       trace(`resolve refused outside the profile: ${specifier} -> ${resolved}`)
       return undefined
     }
@@ -141,6 +141,29 @@ function resolveFromProfile(specifier) {
 function isInside(root, candidate) {
   const relation = relative(root, candidate)
   return relation !== '' && !relation.startsWith('..') && !isAbsolute(relation)
+}
+
+/**
+ * Whether a resolution lands in another installation of the product.
+ *
+ * Node's CommonJS resolution reaches the npm global folder on Windows, which is
+ * where the user's own `dsh` command line installation lives. Serving that copy
+ * made the Host run another release of itself: its client bundles were built
+ * for that release, their dependencies stayed external, and the browser's
+ * module table had no entry for them. The shims and the application's own tree
+ * stay allowed — only a foreign installation is refused.
+ * @param {string} resolved - Absolute path the fallback produced.
+ * @returns Whether the path belongs to another installation.
+ */
+function isForeignInstallation(resolved) {
+  const appData = process.env.APPDATA
+  const foreign = []
+  if (appData !== undefined && appData !== '') foreign.push(join(appData, 'npm', 'node_modules'))
+  for (const entry of (process.env.NODE_PATH ?? '').split(process.platform === 'win32' ? ';' : ':').filter(Boolean)) {
+    foreign.push(entry)
+  }
+  foreign.push(join(dirname(process.execPath), 'node_modules'))
+  return foreign.some(root => isInside(root, resolved))
 }
 
 /**
