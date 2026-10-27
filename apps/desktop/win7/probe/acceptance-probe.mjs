@@ -21,7 +21,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { connect, findPageTarget } from './devtools-client.mjs'
@@ -30,6 +30,21 @@ const debugPort = Number(process.env.DSH_ACCEPTANCE_PORT ?? 9555)
 const reportDirectory = process.env.DSH_ACCEPTANCE_REPORT ?? join(homedir(), 'dsh-acceptance')
 
 /** Everything the probe observed. */
+
+/**
+ * Whether the session report recorded the workspace mounting.
+ * @returns Whether a workspace event exists in the report the shell wrote.
+ */
+function reachedWorkspace() {
+  const path = process.env.DSH_DESKTOP_SESSION_REPORT
+  if (path === undefined || !existsSync(path)) return false
+  try {
+    return readFileSync(path, 'utf8').includes('"kind":"workspace"')
+  } catch {
+    return false
+  }
+}
+
 const findings = []
 /** What the probe did, in order, for the report. */
 const steps = []
@@ -175,7 +190,31 @@ if (target === undefined) {
   try {
     await client.send('Page.enable')
     await client.send('Runtime.enable')
-    await new Promise(resolve => setTimeout(resolve, 4000))
+    note('waiting for the window to finish booting')
+    // The boot screen is the first thing this window paints, and the workspace
+    // only replaces it once the Host answers and the client modules activate.
+    // Reading once would report the loading screen as the product on every
+    // machine slower than the probe, which is every machine this track ships to.
+    let stable = 0
+    const settleDeadline = Date.now() + Number(process.env.DSH_ACCEPTANCE_SETTLE_MS ?? 180_000)
+    for (;;) {
+      // A reload leaves the previous frame's evaluate unanswered; a bounded read
+      // turns that into "not ready yet" instead of a probe that never returns.
+      const boot = await Promise.race([
+        client.evaluate('(() => ({ text: (document.body?.innerText ?? \"\").slice(0, 400), elements: document.querySelectorAll(\"*\").length, href: location.href }))()'),
+        new Promise(resolve => setTimeout(() => resolve(undefined), 10_000)),
+      ])
+      // The application document, painted with more than a boot screen: the
+      // window starts on about:blank, then shows the loading screen, and only
+      // replaces it once the Host answers and the client modules activate.
+      const ready = boot !== undefined && boot !== null && String(boot.href ?? '').startsWith('dsh-app://app')
+        && Number(boot.elements) > 50 && !/Loading plugins/u.test(String(boot.text ?? ''))
+      // The shell reloads the window once the Host is ready, so a single ready
+      // reading can still be the moment before that reload. Two in a row cannot.
+      stable = ready ? stable + 1 : 0
+      if (stable >= 2 || Date.now() > settleDeadline) break
+      await new Promise(resolve => setTimeout(resolve, 2000))
+    }
     note('reading the window')
     observed = await client.evaluate(`(() => ({
       ready: document.readyState,
@@ -202,7 +241,10 @@ if (target === undefined) {
       }
       // The workspace mounts only when the client modules resolve; a window
       // still on its loading screen is that failure, seen from the outside.
-      if (typeof observed.text === 'string' && /Loading plugins/u.test(observed.text)) {
+      // A window that shows its boot screen has either not finished or been
+      // reloaded; the session report is the authoritative record of whether the
+      // workspace ever mounted, so this text is only consulted when it is absent.
+      if (typeof observed.text === 'string' && /Loading plugins/u.test(observed.text) && !reachedWorkspace()) {
         findings.push('the window is still on its loading screen; the client modules did not activate')
       }
     }

@@ -87,11 +87,26 @@ export async function connect(webSocketDebuggerUrl) {
     },
     /**
      * Capture the page as a PNG image.
+     *
+     * A window that is not presenting frames never settles a surface capture:
+     * `Page.captureScreenshot` waits for a compositor frame that a hidden or
+     * background window does not produce. The capture is therefore bounded, and
+     * an unbounded wait falls back to the capture that does not need a surface.
      * @returns The image bytes.
      */
     async screenshot() {
-      const result = await send('Page.captureScreenshot', { format: 'png' })
-      return Buffer.from(String(result.data ?? ''), 'base64')
+      const capture = async (parameters) => {
+        const result = await send('Page.captureScreenshot', parameters)
+        return Buffer.from(String(result.data ?? ''), 'base64')
+      }
+      try {
+        return await Promise.race([
+          capture({ format: 'png' }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('the window did not present a frame')), 15_000)),
+        ])
+      } catch {
+        return await capture({ format: 'png', fromSurface: false })
+      }
     },
     close() {
       socket.close()

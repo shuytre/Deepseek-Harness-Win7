@@ -319,11 +319,11 @@ if (protocolEvent === undefined) findings.push('the application never registered
 // The profile has to resolve the shipped packages: a profile that cannot is a
 // profile whose plugins run another release of the product, and the browser
 // then gets client bundles this build never produced. The shell counts them
-// while preparing the profile, before the Host starts.
+// while preparing the profile, before the Host starts — so the record only
+// exists on a launch that got that far, and a launch that did not is already
+// reported as a workspace that never mounted.
 const profileEvent = events.find(event => event.kind === 'profile')
-if (profileEvent === undefined) {
-  findings.push('the application did not report the profile it prepared')
-} else {
+if (profileEvent !== undefined) {
   const resolvable = Number.parseInt(/(\d+)/u.exec(String(profileEvent.detail))?.[1] ?? '0', 10)
   if (!Number.isSafeInteger(resolvable) || resolvable <= 0) {
     findings.push(`the profile resolves no shipped package: ${String(profileEvent.detail)}`)
