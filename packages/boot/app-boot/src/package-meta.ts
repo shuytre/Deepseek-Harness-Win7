@@ -1,6 +1,7 @@
 /** Read plugin display text and icons through exported resources without evaluating plugin code. */
 
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ModuleLoader } from '@deepseek-ai/cordis-plugin-loader'
@@ -72,11 +73,61 @@ function assertPackageOwned(file: string, name: string): void {
  */
 export function resolvePluginResource(specifier: string, parentURL: string): string {
   const loader = ModuleLoader.fromInternal()
-  if (loader === undefined) throw new Error('Plugin metadata requires the Node module resolver')
+  if (loader === undefined) return resolveWithoutLoader(specifier, parentURL)
   const result = loader.version === 'v2'
     ? loader.resolveSync(parentURL, { specifier, attributes: {} })
     : loader.resolveSync(specifier, parentURL, {})
   return fileURLToPath(result.url)
+}
+
+/**
+ * Resolve a plugin resource where the runtime exposes no loader internals.
+ *
+ * Node 16 has no `ModuleLoader`, and the Windows 7 track cannot install the
+ * resolver interception that would provide one, so every plugin's metadata read
+ * failed with "Plugin metadata requires the Node module resolver". Plain
+ * resolution answers the same specifiers: `require.resolve` for anything a
+ * package publishes, and a manifest read for the `package.json` the metadata
+ * reader asks for, which an `exports` map usually does not publish.
+ * @param specifier - plugin module or exported resource specifier.
+ * @param parentURL - owning module-resolution base.
+ * @returns the local filesystem path of the resource.
+ * @throws when neither resolution selects a local file.
+ */
+function resolveWithoutLoader(specifier: string, parentURL: string): string {
+  const require = createRequire(parentURL)
+  try {
+    return require.resolve(specifier)
+  } catch (error) {
+    const name = barePackageName(specifier)
+    if (name === undefined) throw error
+    const subpath = specifier.slice(name.length).replace(/^\/+/u, '')
+    let start: string
+    try {
+      start = dirname(fileURLToPath(parentURL))
+    } catch {
+      throw error
+    }
+    const directory = findInstalledPackage(name, start)
+    if (directory === undefined) throw error
+    const candidate = subpath === '' ? join(directory, 'package.json') : join(directory, subpath)
+    if (!existsSync(candidate)) throw error
+    return candidate
+  }
+}
+
+/**
+ * Find an installed package directory by walking `node_modules` upwards.
+ * @param name - package name, scope included.
+ * @param start - directory the search starts from.
+ * @returns absolute package directory, or undefined when no tree carries it.
+ */
+function findInstalledPackage(name: string, start: string): string | undefined {
+  for (let directory = start; ; directory = dirname(directory)) {
+    const candidate = join(directory, 'node_modules', name)
+    if (existsSync(join(candidate, 'package.json'))) return candidate
+    if (dirname(directory) === directory) return undefined
+  }
 }
 
 function missingResource(error: unknown): boolean {

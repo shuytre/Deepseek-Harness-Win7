@@ -1487,7 +1487,9 @@ class JsonlSessionPersistence extends SessionPersistence {
         opposite.push(join(dir, entry.name))
       }
     }
-    if (opposite.length > 0) throw this.encodingMismatch(opposite[0] as string)
+    // A directory holding the other encoding's generation is not this root's
+    // artifact; listing skips it instead of failing the whole listing.
+    if (opposite.length > 0) return undefined
     const latest = generations.sort((left, right) => right.version - left.version)[0]
     if (latest === undefined) return undefined
     return {
@@ -1627,11 +1629,24 @@ class JsonlSessionPersistence extends SessionPersistence {
     return this.rootEncodingCheck
   }
 
+  /**
+   * Note roots that belong to the other physical encoding.
+   *
+   * This used to throw, and the throw ran at read time: one session written by a
+   * build that compresses — which a shared Harness home collects as soon as the
+   * user runs the same product with a newer runtime — took the whole workspace
+   * registry down, and the window answered every `/api/workspace/create` with
+   * 404. A foreign artifact is not a reason to refuse the root; the write path
+   * still refuses to put a second encoding into a directory that has one, which
+   * is the invariant the check exists for.
+   */
   private async checkRootEncoding(): Promise<void> {
     for (const project of await this.listProjectDirs()) {
       for (const dir of await this.listSessionDirs(project)) {
         const incompatible = await this.findOppositeGenerationInDirectory(dir)
-        if (incompatible !== undefined) throw this.encodingMismatch(incompatible)
+        if (incompatible !== undefined) {
+          this.ctx.logger.warn(`${this.name}: ignoring ${incompatible}; it uses the other compression`)
+        }
       }
     }
   }
