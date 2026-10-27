@@ -8,6 +8,7 @@ import {
   openSync,
   readdirSync,
   realpathSync,
+  rmSync,
   closeSync,
   readFileSync,
   symlinkSync,
@@ -80,6 +81,19 @@ export function linkShippedPackages(profileDir: string, runtimeDsh: string): { l
   for (const name of shipped) {
     const target = join(profileScope, name)
     if (existsSync(target)) continue
+    // An entry that exists but does not resolve is a link an earlier
+    // installation left behind: `existsSync` follows it, so it reads as absent
+    // while still occupying the name. Without this repair a profile keeps
+    // pointing at a directory the last uninstall removed, resolution falls back
+    // to whatever else answers the name, and the window stops mounting.
+    const stale = lstatSync(target, { throwIfNoEntry: false })
+    if (stale !== undefined) {
+      try {
+        unlinkSync(target)
+      } catch {
+        rmSync(target, { recursive: true, force: true })
+      }
+    }
     const source = join(shippedScope, name)
     try {
       // A junction needs no elevation on Windows and behaves like the directory

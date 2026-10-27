@@ -356,4 +356,28 @@ describe('desktop shipped package links', () => {
     expect(lstatSync(join(scope, 'cordis')).isSymbolicLink()).toBe(true)
     expect(existsSync(join(scope, 'cordis', 'package.json'))).toBe(true)
   })
+
+  it('replaces a link an earlier installation left pointing at a removed directory', () => {
+    const root = temporaryRoot()
+    const runtime = join(root, 'runtime')
+    const profile = join(root, 'profile')
+    const shipped = join(runtime, 'node_modules', '@deepseek-ai')
+    mkdirSync(join(shipped, 'cordis'), { recursive: true })
+    writeFileSync(join(shipped, 'cordis', 'package.json'), '{"name":"@deepseek-ai/cordis","version":"1.0.0"}\n')
+    const scope = join(profile, 'node_modules', '@deepseek-ai')
+    mkdirSync(scope, { recursive: true })
+    // A junction whose target no longer exists: existsSync follows it and says no,
+    // the name is still taken, and resolution therefore cannot reach the shipped copy.
+    const removed = join(root, 'previous-install', 'cordis')
+    mkdirSync(removed, { recursive: true })
+    symlinkSync(removed, join(scope, 'cordis'), process.platform === 'win32' ? 'junction' : 'dir')
+    rmSync(removed, { recursive: true, force: true })
+
+    const result = linkShippedPackages(profile, runtime)
+
+    expect(result.linked).toBe(1)
+    expect(result.available).toBe(1)
+    expect(existsSync(join(scope, 'cordis', 'package.json'))).toBe(true)
+    expect(readFileSync(join(scope, 'cordis', 'package.json'), 'utf8')).toContain('1.0.0')
+  })
 })
