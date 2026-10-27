@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveDesktopPaths } from '../src/paths.ts'
-import { DesktopProjectManager } from '../src/project-manager.ts'
+import { DesktopProjectManager, linkShippedPackages } from '../src/project-manager.ts'
 import { readProfilePlugins } from '@deepseek-ai/dsh-app-boot'
 import { runtimeFixture } from './runtime-fixture.ts'
 
@@ -328,5 +328,29 @@ describe('desktop link-backend projections', () => {
     expect(existsSync(join(profile, '.dsh-module-fallback'))).toBe(false)
     expect(lstatSync(join(profile, 'node_modules', 'bridge'), { throwIfNoEntry: false })).toBeUndefined()
     expect(existsSync(join(target, 'package.json'))).toBe(true)
+  })
+})
+
+describe('desktop shipped package links', () => {
+  it('links the shipped Harness packages into the profile and keeps what the profile owns', () => {
+    const root = temporaryRoot()
+    const runtime = join(root, 'runtime')
+    const profile = join(root, 'profile')
+    const shipped = join(runtime, 'node_modules', '@deepseek-ai')
+    mkdirSync(join(shipped, 'dsh'), { recursive: true })
+    writeFileSync(join(shipped, 'dsh', 'package.json'), '{"name":"@deepseek-ai/dsh","version":"1.0.0"}\n')
+    mkdirSync(join(shipped, 'cordis'), { recursive: true })
+    writeFileSync(join(shipped, 'cordis', 'package.json'), '{"name":"@deepseek-ai/cordis","version":"1.0.0"}\n')
+    mkdirSync(join(profile, 'node_modules', '@deepseek-ai'), { recursive: true })
+    // The profile owns one of them already; the link must not replace it.
+    mkdirSync(join(profile, 'node_modules', '@deepseek-ai', 'dsh'), { recursive: true })
+    writeFileSync(join(profile, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'), '{"name":"@deepseek-ai/dsh","version":"0.9.0"}\n')
+
+    expect(linkShippedPackages(profile, runtime)).toBe(1)
+
+    const scope = join(profile, 'node_modules', '@deepseek-ai')
+    expect(readFileSync(join(scope, 'dsh', 'package.json'), 'utf8')).toContain('0.9.0')
+    expect(lstatSync(join(scope, 'cordis')).isSymbolicLink()).toBe(true)
+    expect(existsSync(join(scope, 'cordis', 'package.json'))).toBe(true)
   })
 })

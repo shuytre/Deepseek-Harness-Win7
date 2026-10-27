@@ -6,9 +6,11 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  readdirSync,
   realpathSync,
   closeSync,
   readFileSync,
+  symlinkSync,
   unlinkSync,
   writeFileSync,
   writeSync,
@@ -48,8 +50,50 @@ function workspaceFile(overrides: Readonly<Record<string, string>> = {}): string
   return `packages:\n  - .\n\n${overrideSection}${WORKSPACE_SETTINGS}allowBuilds:\n  node-pty: true\n  koffi: true\n  fs-ext: true\n  ${JSON.stringify(coreBuildKey)}: true\n  '@google/genai': false\n  protobufjs: false\n  node-addon-require-builtin: false\n`
 }
 
-function migrateProfileSettings(projectDir: string): void {
-  const path = join(projectDir, 'pnpm-workspace.yaml')
+/**
+ * Link the shipped Harness packages into the profile's own `node_modules`.
+ *
+ * The profile holds the user's plugins, and it holds no Harness packages: the
+ * shipped ones live in the application runtime beside the Host. Node resolves a
+ * bare specifier from the profile outwards, and on Windows that walk reaches
+ * the npm global folder — where the user's own `dsh` command line installation
+ * lives. A profile plugin asking for `@deepseek-ai/dsh` therefore got that
+ * installation instead of the shipped copy, and the Host then ran a different
+ * version of the product: its client bundles were built for another release,
+ * their dependencies stayed external, and the browser's module table had no
+ * entry for them, so the workspace never mounted.
+ *
+ * A junction in the profile's `node_modules` puts the shipped packages first
+ * in that walk, for the profile's plugins and for the Host alike. Existing
+ * entries are left alone: the profile's own installation wins where it has one.
+ * @param profileDir - Desktop profile directory.
+ * @param runtimeDsh - Shipped runtime directory holding `node_modules`.
+ * @returns How many packages were linked.
+ */
+export function linkShippedPackages(profileDir: string, runtimeDsh: string): number {
+  const shippedScope = join(runtimeDsh, 'node_modules', '@deepseek-ai')
+  if (!existsSync(shippedScope)) return 0
+  const profileScope = join(profileDir, 'node_modules', '@deepseek-ai')
+  mkdirSync(profileScope, { recursive: true })
+  let linked = 0
+  for (const name of readdirSync(shippedScope)) {
+    const target = join(profileScope, name)
+    if (existsSync(target)) continue
+    const source = join(shippedScope, name)
+    try {
+      // A junction needs no elevation on Windows and behaves like the directory
+      // it points at; elsewhere a plain directory symlink is the equivalent.
+      symlinkSync(source, target, process.platform === 'win32' ? 'junction' : 'dir')
+      linked += 1
+    } catch {
+      // A profile that cannot hold the link still resolves the shipped packages
+      // from the runtime tree; the link is an improvement, not a requirement.
+    }
+  }
+  return linked
+}
+
+function migrateProfileSettings(projectDir: string): void {  const path = join(projectDir, 'pnpm-workspace.yaml')
   if (!existsSync(path)) return
   const legacy = `packages:\n  - .\n\n${WORKSPACE_SETTINGS}strictDepBuilds: true\nallowBuilds:\n  node-pty: true\n  koffi: true\n  fs-ext: true\n  "${CORE_BUILD_PACKAGE}": true\n  '@google/genai': false\n  protobufjs: false\n  node-addon-require-builtin: false\n`
   if (readFileSync(path, 'utf8').replaceAll('\r\n', '\n') === legacy) {
@@ -87,6 +131,9 @@ export class DesktopProjectManager {
       migrateProfileSettings(this.paths.profile)
       createPluginProfile(this.paths.profile)
       removeLinkProjections(this.paths.profile)
+      // The profile must resolve the shipped packages before the walk reaches
+      // the user's own installation of the same name.
+      linkShippedPackages(this.paths.profile, this.runtime.dsh)
     })
   }
 

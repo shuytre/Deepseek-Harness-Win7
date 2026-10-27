@@ -298,7 +298,8 @@ interface CompatProtocolRequest {
   readonly url: string
   readonly method: string
   readonly headers: Record<string, string>
-  readonly uploadData?: Array<{ data: Buffer }> | undefined
+  /** Electron 22 names the payload `bytes`; 25 and later also carry `data`. */
+  readonly uploadData?: Array<{ data?: Buffer | string | undefined; bytes?: Buffer | string | undefined }> | undefined
 }
 
 /** Electron 22 `ProtocolResponse` shape. */
@@ -355,8 +356,12 @@ export function handleProtocolCompat(scheme: string, handler: ProtocolHandler): 
       } catch (error) {
         // Chromium only ever learns the net error number, so the reason has to
         // be written where a diagnostic can read it: the track's trace sink
-        // (installed by the polyfills) and stderr.
-        const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+        // (installed by the polyfills) and stderr. The stack names the call
+        // that failed, which is the only thing that distinguishes one broken
+        // request path from another.
+        const message = error instanceof Error
+          ? `${error.name}: ${error.message}\n${error.stack ?? ''}`
+          : String(error)
         recordProtocolFailure(`${request.url} ${message}`)
         // Electron 22 reports a failed protocol load through the `error`
         // number of the response, which is the net error list value for a
@@ -383,8 +388,30 @@ function bridgeProtocolRequest(request: CompatProtocolRequest): Request {
   const method = (request.method ?? 'GET').toUpperCase()
   const body = method === 'GET' || method === 'HEAD'
     ? undefined
-    : Buffer.concat((request.uploadData ?? []).map(entry => entry.data))
+    : requestBody(request)
   return new Request(request.url, { method, headers, body, duplex: 'half' } as RequestInit)
+}
+
+/**
+ * Collect the posted body of a protocol request.
+ *
+ * Electron names the payload differently by version: 25 and later carry a
+ * `data` string next to the bytes, and 22 carries only `bytes`. Reading `data`
+ * alone left the buffer list holding `undefined`, and `Buffer.concat` refused
+ * it with "Cannot read properties of undefined (reading 'length')" — every
+ * request the application made to the Host failed, so the window showed a
+ * rendered shell that could not load a single thing.
+ * @param request - Protocol request as Chromium delivered it.
+ * @returns The posted bytes, or undefined when the request carries no body.
+ */
+function requestBody(request: CompatProtocolRequest): Buffer | undefined {
+  const parts: Buffer[] = []
+  for (const entry of request.uploadData ?? []) {
+    const part = entry.data ?? entry.bytes
+    if (part === undefined || part === null) continue
+    parts.push(typeof part === 'string' ? Buffer.from(part) : part)
+  }
+  return parts.length === 0 ? undefined : Buffer.concat(parts)
 }
 
 /**

@@ -10,7 +10,7 @@
  * is passed as a file because `module.register()` only exists from Node 20.6).
  */
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, relative } from 'node:path'
 import { existsSync, openSync, readFileSync, writeSync } from 'node:fs'
 import { createRequire } from 'node:module'
 
@@ -114,11 +114,33 @@ let profileRequire
 function resolveFromProfile(specifier) {
   try {
     profileRequire ??= createRequire(join(process.cwd(), 'package.json'))
-    return pathToFileURL(profileRequire.resolve(specifier)).href
+    const resolved = profileRequire.resolve(specifier)
+    // The fallback exists for the plugins the user installed into this profile,
+    // and for nothing else. Node's CommonJS resolution also reaches the npm
+    // global folder, where the user's own installation of the same product
+    // lives; serving that copy made the Host run another release of itself,
+    // with client bundles this build never produced. A resolution outside the
+    // profile is therefore refused.
+    if (!isInside(process.cwd(), resolved)) {
+      trace(`resolve refused outside the profile: ${specifier} -> ${resolved}`)
+      return undefined
+    }
+    return pathToFileURL(resolved).href
   } catch {
     const entry = findPackageEntry(specifier)
     return entry === undefined ? undefined : pathToFileURL(entry).href
   }
+}
+
+/**
+ * Whether a path lies inside a directory.
+ * @param {string} root - Directory that must contain the path.
+ * @param {string} candidate - Absolute path to test.
+ * @returns Whether the candidate is inside the root.
+ */
+function isInside(root, candidate) {
+  const relation = relative(root, candidate)
+  return relation !== '' && !relation.startsWith('..') && !isAbsolute(relation)
 }
 
 /**
