@@ -19,6 +19,12 @@ export const WIN7_BOOT_POLYFILL_SOURCE = `(function(){
       return { promise: promise, resolve: resolve, reject: reject };
     } });
   }
+  if (typeof Symbol.dispose !== 'symbol') {
+    Object.defineProperty(Symbol, 'dispose', { configurable: true, value: Symbol.for('Symbol.dispose') });
+  }
+  if (typeof Symbol.asyncDispose !== 'symbol') {
+    Object.defineProperty(Symbol, 'asyncDispose', { configurable: true, value: Symbol.for('Symbol.asyncDispose') });
+  }
   if (typeof AbortSignal === 'function' && typeof AbortSignal.timeout !== 'function') {
     Object.defineProperty(AbortSignal, 'timeout', { configurable: true, writable: true, value: function (ms) {
       var controller = new AbortController();

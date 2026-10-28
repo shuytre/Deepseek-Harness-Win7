@@ -205,6 +205,25 @@ function installWellFormedStrings() {
   }
 }
 
+/**
+ * Install `Symbol.dispose` and `Symbol.asyncDispose` (Node 20).
+ *
+ * TypeScript compiles `using` into a helper that reads them and throws
+ * "Symbol.dispose is not defined." when the runtime has neither — which is what
+ * the session store did on Node 16, so creating a session failed outright. The
+ * registry symbols keep the protocol stable across realms.
+ */
+function installDisposeSymbols() {
+  for (const [name, key] of [['dispose', 'Symbol.dispose'], ['asyncDispose', 'Symbol.asyncDispose']]) {
+    if (typeof Symbol[name] === 'symbol') continue
+    Object.defineProperty(Symbol, name, {
+      configurable: true,
+      writable: false,
+      value: Symbol.for(key),
+    })
+  }
+}
+
 /** Install `os.availableParallelism` (Node 18.14). */
 function installAvailableParallelism() {
   const os = require('node:os')
@@ -714,6 +733,7 @@ function installWin7Polyfills() {
   installAbortSignalHelpers()
   installStructuredClone()
   installWebCrypto()
+  installDisposeSymbols()
   installZlibZstdStubs()
   installUrlCanParse()
   installUrlParse()

@@ -288,3 +288,9 @@
 .overlayLayer > * {
   pointer-events: auto;
 }
+
+/* A square window (Windows 8.1 and older) has no outer corner to hide behind, so
+   the panel rounds its own right corner instead of leaving a square notch. */
+:global([data-windows-square-corners]) .centerCol {
+  border-radius: var(--dsh-windows-content-radius) var(--dsh-windows-content-radius) 0 0;
+}

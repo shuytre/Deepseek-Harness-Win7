@@ -1,8 +1,19 @@
+import { release } from 'node:os'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 /** Synchronizes Windows context menus and caption colors with the application document. */
 import { ipcRenderer } from 'electron'
 import { DESKTOP_IPC } from './ipc.ts'
 import { installWindowsMenu } from './preload-menu.ts'
+
+
+/**
+ * Whether the operating system rounds the corners of an ordinary window.
+ * @returns True from Windows 11 (build 22000); false on Windows 8.1 and older.
+ */
+function windowDrawsRoundedCorners(): boolean {
+  const [major = '0', , build = '0'] = release().split('.')
+  return Number(major) >= 10 && Number(build) >= 22_000
+}
 
 /** Install the Windows-only titlebar marker and observe application language and palette changes. */
 export function syncWindowsAppearance(): void {
@@ -10,6 +21,10 @@ export function syncWindowsAppearance(): void {
   const mark = (): void => {
     const root = document.documentElement
     root.dataset.windowsTitlebar = ''
+    // Windows 11 rounds the window itself, so the content column only rounds its
+    // inner corner; Windows 7 and 8 draw a square window, and the same rule then
+    // leaves a square notch on the right. The marker lets the stylesheet close it.
+    if (!windowDrawsRoundedCorners()) root.dataset.windowsSquareCorners = ''
     root.style.setProperty('--dsh-windows-titlebar-height', `${WINDOWS_TITLEBAR_HEIGHT}px`)
   }
   // The root can be absent before the HTML parser creates it.

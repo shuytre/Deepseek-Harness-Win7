@@ -142,6 +142,29 @@ async function drainWithin(collectors: readonly Promise<void>[], ms: number): Pr
 /** Install commands that take the packages to install as positionals. */
 const INSTALL_COMMANDS = new Set(['add', 'install', 'i'])
 
+/**
+ * Command arguments for one pnpm run, anchored and usable from the profile.
+ *
+ * A profile declares itself a workspace (`packages: - .`), and pnpm refuses to
+ * add a dependency to a workspace root without `-w`: every install from the
+ * application's plugin page failed with `ERR_PNPM_ADDING_TO_ROOT` and nothing
+ * was installed. The flag is added only where the workspace file exists and the
+ * caller did not already choose a workspace target.
+ * @param args - Arguments the caller asked pnpm to run.
+ * @param directory - Directory pnpm runs in.
+ * @param cwd - Caller's working directory, used to anchor path specs.
+ * @returns Arguments for the process.
+ */
+function installArguments(args: readonly string[], directory: string, cwd: string): string[] {
+  const anchored = args.map(argument => anchorPathSpec(argument, cwd))
+  const command = anchored[0]
+  if (command === undefined || !INSTALL_COMMANDS.has(command)) return anchored
+  if (!existsSync(join(directory, 'pnpm-workspace.yaml'))) return anchored
+  if (anchored.some(argument => argument === '-w' || argument === '--workspace-root')) return anchored
+  return [command, '-w', ...anchored.slice(1)]
+}
+
+
 /** Bound on a pre-install registry lookup when the caller names none. */
 const LOOKUP_TIMEOUT_MS = 20_000
 
@@ -354,7 +377,7 @@ export async function runProfilePnpm(
   // run is killed: a lifecycle script outlives the pnpm process that started it.
   // The CLI keeps the caller's process group, so an interrupt still reaches it.
   const grouped = leadsOwnGroup(options.execution)
-  const child = execa(options.command ?? 'pnpm', [...options.args ?? [], ...args.map(arg => anchorPathSpec(arg, context.cwd))], {
+  const child = execa(options.command ?? 'pnpm', [...options.args ?? [], ...installArguments(args, dir, context.cwd)], {
     cwd: dir, env: environment, extendEnv: false, reject: false,
     stdout: options.execution === 'cli' ? 'inherit' : 'pipe',
     stderr: options.execution === 'cli' ? 'inherit' : 'pipe',
@@ -592,6 +615,38 @@ export interface PackageViewOptions {
  * @returns The registry URL as pnpm printed it, or null when pnpm did not answer with one.
  */
 export async function readProfileRegistry(
+  dir: string, options: { command?: string; args?: readonly string[]; env?: Readonly<Record<string, string>>; timeoutMs: number },
+): Promise<string | null> {
+  const key = `${dir}\u0000${options.command ?? 'pnpm'}\u0000${(options.args ?? []).join(' ')}`
+  const cached = registryCache.get(key)
+  if (cached !== undefined && Date.now() - cached.at < REGISTRY_CACHE_MS) return await cached.value
+  const value = queryProfileRegistry(dir, options)
+  registryCache.set(key, { at: Date.now(), value })
+  return await value
+}
+
+/**
+ * How long one `pnpm config get registry` answer stands.
+ *
+ * Starting pnpm costs seconds on the machines this track targets — measured at
+ * 2.5 s on a two-core Windows 7 desktop — and the plugin page asks for the
+ * registry through three separate requests, so the page spent most of its nine
+ * seconds waiting for pnpm to print a URL that had not changed. The registry is
+ * configuration: a minute of staleness costs nothing, and an install that names
+ * its own registry never consults this.
+ */
+const REGISTRY_CACHE_MS = 60_000
+
+/** Last answer per profile, executable, and prefix arguments. */
+const registryCache = new Map<string, { at: number; value: Promise<string | null> }>()
+
+/**
+ * Ask pnpm for the registry the profile resolves.
+ * @param dir - Profile directory.
+ * @param options - The pnpm executable and the time bound.
+ * @returns The registry URL, or null when pnpm did not answer with one.
+ */
+async function queryProfileRegistry(
   dir: string, options: { command?: string; args?: readonly string[]; env?: Readonly<Record<string, string>>; timeoutMs: number },
 ): Promise<string | null> {
   const result = await execa(options.command ?? 'pnpm', [...options.args ?? [], 'config', 'get', 'registry'], {

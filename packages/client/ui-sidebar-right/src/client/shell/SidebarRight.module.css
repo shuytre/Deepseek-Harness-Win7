@@ -167,3 +167,10 @@
   min-width: 0;
   overflow: hidden;
 }
+
+/* A square window (Windows 8.1 and older) has no outer corner to hide behind, so
+   the panel rounds its own right corner instead of leaving a square notch. */
+:global([data-windows-square-corners]) .panel[data-sidebar-right-panel='fullscreen']
+  :global([data-dockkit-column='0'][data-dockkit-pane]) {
+  border-radius: var(--dsh-windows-content-radius) var(--dsh-windows-content-radius) 0 0;
+}
