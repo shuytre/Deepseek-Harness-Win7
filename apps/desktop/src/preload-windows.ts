@@ -1,4 +1,3 @@
-import { release } from 'node:os'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 /** Synchronizes Windows context menus and caption colors with the application document. */
 import { ipcRenderer } from 'electron'
@@ -7,12 +6,31 @@ import { installWindowsMenu } from './preload-menu.ts'
 
 
 /**
- * Whether the operating system rounds the corners of an ordinary window.
- * @returns True from Windows 11 (build 22000); false on Windows 8.1 and older.
+ * Mark a window the operating system does not round.
+ *
+ * Windows 11 rounds the window itself, so the content column only rounds the
+ * corner inside the frame; Windows 8.1 and older draw a square window, and the
+ * same rule leaves a square notch on the right. The preload runs sandboxed and
+ * has no `node:os`, so the client hints are the source: Windows 11 reports
+ * platform version 13 and later, Windows 10 reports 10 and earlier. A browser
+ * without client hints is treated as square, which only adds the corner.
+ * @param root - Document element carrying the platform markers.
  */
-function windowDrawsRoundedCorners(): boolean {
-  const [major = '0', , build = '0'] = release().split('.')
-  return Number(major) >= 10 && Number(build) >= 22_000
+function markSquareCorners(root: HTMLElement): void {
+  const data = (navigator as Navigator & {
+    userAgentData?: { getHighEntropyValues(hints: string[]): Promise<{ platformVersion?: string }> }
+  }).userAgentData
+  if (data === undefined) {
+    root.dataset.windowsSquareCorners = ''
+    return
+  }
+  void data.getHighEntropyValues(['platformVersion']).then((values) => {
+    const major = Number.parseInt(String(values.platformVersion ?? '0').split('.')[0] ?? '0', 10)
+    if (major >= 13) delete root.dataset.windowsSquareCorners
+    else root.dataset.windowsSquareCorners = ''
+  }).catch(() => {
+    root.dataset.windowsSquareCorners = ''
+  })
 }
 
 /** Install the Windows-only titlebar marker and observe application language and palette changes. */
@@ -24,7 +42,7 @@ export function syncWindowsAppearance(): void {
     // Windows 11 rounds the window itself, so the content column only rounds its
     // inner corner; Windows 7 and 8 draw a square window, and the same rule then
     // leaves a square notch on the right. The marker lets the stylesheet close it.
-    if (!windowDrawsRoundedCorners()) root.dataset.windowsSquareCorners = ''
+    markSquareCorners(root)
     root.style.setProperty('--dsh-windows-titlebar-height', `${WINDOWS_TITLEBAR_HEIGHT}px`)
   }
   // The root can be absent before the HTML parser creates it.
