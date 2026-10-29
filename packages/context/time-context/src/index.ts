@@ -137,10 +137,18 @@ export function apply(ctx: Context, config: Config): void {
   try {
     fallbackFormatter = createTimestampFormatter(timeZone)
   } catch (error: unknown) {
-    const message = timeZone === undefined
-      ? 'time-context: failed to resolve the system time zone'
-      : `time-context: invalid IANA timeZone ${JSON.stringify(timeZone)}`
-    throw new Error(message, { cause: error })
+    if (timeZone !== undefined) {
+      throw new Error(`time-context: invalid IANA timeZone ${JSON.stringify(timeZone)}`, { cause: error })
+    }
+    // A runtime whose zone database cannot name the local zone used to take
+    // three Agent presets down with it. UTC is a serviceable reading, and a
+    // preset that loads with a stated zone beats a preset that does not load.
+    try {
+      fallbackFormatter = createTimestampFormatter('UTC')
+      ctx.logger.warn('time-context: the system time zone is unavailable; readings use UTC')
+    } catch (utcError: unknown) {
+      throw new Error('time-context: failed to resolve the system time zone', { cause: utcError })
+    }
   }
   const fallbackTimeZone = fallbackFormatter.resolvedOptions().timeZone
   const formatters = new Map<string, Intl.DateTimeFormat>([[fallbackTimeZone, fallbackFormatter]])
