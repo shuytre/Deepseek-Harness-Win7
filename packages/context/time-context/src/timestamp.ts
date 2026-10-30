@@ -19,30 +19,44 @@ const TIMESTAMP_FIELDS = {
 } as const
 
 export function createTimestampFormatter(timeZone?: string): Intl.DateTimeFormat {
-  const zone = timeZone === undefined ? {} : { timeZone }
-  try {
-    return new Intl.DateTimeFormat('en-US', { ...zone, ...TIMESTAMP_FIELDS, timeZoneName: 'longOffset' })
-  } catch {
-    // `longOffset` arrived with ICU 71: an older runtime refuses the option
-    // outright, and the whole plugin failed to apply with "failed to resolve the
-    // system time zone". `shortOffset` carries the same information in a shorter
-    // form, which `formatTimestamp` normalizes back to `+HH:MM`.
-    return new Intl.DateTimeFormat('en-US', { ...zone, ...TIMESTAMP_FIELDS, timeZoneName: 'shortOffset' })
-  }
+  // The offset is computed, not asked for: `timeZoneName: 'longOffset'` needs
+  // ICU 72 and `'shortOffset'` needs the same, so the shipped Node 16 (ICU 71)
+  // refused both and the plugin never applied — three Agent presets failed to
+  // load with "failed to resolve the system time zone" on a machine whose zone
+  // was Asia/Shanghai all along.
+  return new Intl.DateTimeFormat('en-US', {
+    ...(timeZone === undefined ? {} : { timeZone }),
+    ...TIMESTAMP_FIELDS,
+  })
 }
 
 /**
- * Normalize an offset label to `+HH:MM`.
- * @param label - `timeZoneName` part, `GMT+08:00` or the older `GMT+8` / `GMT`.
- * @returns The offset without its `GMT` prefix.
+ * Offset of a zone from UTC at one instant.
+ * @param now - Epoch milliseconds.
+ * @param timeZone - IANA zone, or `undefined` for the process zone.
+ * @returns Offset in minutes, east of UTC positive.
  */
-function normalizeOffset(label: string): string {
-  const match = /^(?:GMT|UTC)(?:([+-])(\d{1,2})(?::?(\d{2}))?)?$/u.exec(label)
-  if (match === null) return label.startsWith('GMT') ? label.slice(3) : label
-  const sign = match[1] ?? '+'
-  const hours = (match[2] ?? '0').padStart(2, '0')
-  const minutes = match[3] ?? '00'
-  return `${sign}${hours}:${minutes}`
+function zoneOffsetMinutes(now: number, timeZone?: string): number {
+  if (timeZone === undefined || timeZone === Intl.DateTimeFormat().resolvedOptions().timeZone) {
+    return -new Date(now).getTimezoneOffset()
+  }
+  const parts = new Intl.DateTimeFormat('en-US', { ...TIMESTAMP_FIELDS, timeZone }).formatToParts(now)
+  const field = (type: TimestampPart): number => Number(parts.find(part => part.type === type)?.value ?? '0')
+  const asUtc = Date.UTC(field('year'), field('month') - 1, field('day'), field('hour'), field('minute'), field('second'))
+  return Math.round((asUtc - Math.round(now / 1000) * 1000) / 60_000)
+}
+
+/**
+ * Render an offset as `+HH:MM`.
+ * @param minutes - Offset in minutes, east of UTC positive.
+ * @returns The offset text.
+ */
+function formatOffset(minutes: number): string {
+  const sign = minutes < 0 ? '-' : '+'
+  const absolute = Math.abs(minutes)
+  const hours = String(Math.floor(absolute / 60)).padStart(2, '0')
+  const rest = String(absolute % 60).padStart(2, '0')
+  return `${sign}${hours}:${rest}`
 }
 
 /**
@@ -56,6 +70,6 @@ export function formatTimestamp(now: number, formatter: Intl.DateTimeFormat, tim
   const parts = Object.fromEntries(
     formatter.formatToParts(now).map(part => [part.type, part.value]),
   ) as Record<TimestampPart, string>
-  const offset = normalizeOffset(parts.timeZoneName)
+  const offset = formatOffset(zoneOffsetMinutes(now, timeZone))
   return `${parts['year']}-${parts['month']}-${parts['day']}T${parts['hour']}:${parts['minute']}:${parts['second']}${offset}[${timeZone}]`
 }

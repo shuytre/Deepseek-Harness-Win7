@@ -150,7 +150,9 @@ export function apply(ctx: Context, config: Config): void {
       throw new Error('time-context: failed to resolve the system time zone', { cause: utcError })
     }
   }
-  const fallbackTimeZone = fallbackFormatter.resolvedOptions().timeZone
+  // A runtime with no zone database names nothing; the fields it formats are
+  // still the local ones, so the label says so rather than claiming UTC.
+  const fallbackTimeZone = fallbackFormatter.resolvedOptions().timeZone ?? 'Local'
   const formatters = new Map<string, Intl.DateTimeFormat>([[fallbackTimeZone, fallbackFormatter]])
 
   /** Resolve and cache one request-local timestamp formatter. */
