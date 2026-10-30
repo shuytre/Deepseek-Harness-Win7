@@ -1,0 +1,2 @@
+[win7] cjs-externals: note: D:\a\Deepseek-Harness-Win7\Deepseek-Harness-Win7\apps\desktop\lib\main.cjs requires node-addon-require-builtin, not resolvable from the workspace (MODULE_NOT_FOUND)
+[win7] cjs-externals: 6 bundles, 5 external require(s), 1 not resolvable from the workspace, no ES module require

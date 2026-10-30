@@ -1,0 +1,4 @@
+{"at":"2026-10-30T11:21:29.280Z","kind":"start","detail":"electron=22.3.27 node=16.17.1 packaged=true"}
+{"at":"2026-10-30T11:21:29.333Z","kind":"protocol","detail":"registered dsh-app"}
+{"at":"2026-10-30T11:21:29.462Z","kind":"protocol-selfcheck","detail":"status=200 bytes=5769"}
+{"at":"2026-10-30T11:21:32.479Z","kind":"render-process-gone","detail":"crashed (-1073741819)"}

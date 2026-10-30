@@ -1,0 +1,26 @@
+
+[3144:1030/112128.962:ERROR:node_bindings.cc(323)] Most NODE_OPTIONs are not supported in packaged apps. See documentation for more details.
+2026-10-30T11:21:29.216Z polyfills: full
+
+DevTools listening on ws://127.0.0.1:9222/devtools/browser/a8416c0e-f26f-4982-a0ff-216f71fa3ea0
+[3144:1030/112132.442:ERROR:gpu_process_host.cc(991)] GPU process exited unexpectedly: exit_code=-1073741819
+Error: ERR_FAILED (-2) loading 'dsh-app://app/'
+    at rejectAndCleanup (node:electron/js2c/browser_init:2:77379)
+    at EventEmitter.stopLoadingListener (node:electron/js2c/browser_init:2:77754)
+    at EventEmitter.emit (node:events:513:28) {
+  errno: -2,
+  code: 'ERR_FAILED',
+  url: 'dsh-app://app/'
+}
+Error: Desktop renderer exited: crashed
+    at EventEmitter.<anonymous> (D:\a\Deepseek-Harness-Win7\Deepseek-Harness-Win7\apps\desktop\.desktop-build\targets\win-x64\unsigned-artifacts\win-unpacked\resources\app.asar\lib\main.cjs:15790:107)
+    at EventEmitter.emit (node:events:525:35)
+[3144:1030/112134.745:ERROR:gpu_process_host.cc(991)] GPU process exited unexpectedly: exit_code=-1073741819
+[3144:1030/112136.986:ERROR:gpu_process_host.cc(991)] GPU process exited unexpectedly: exit_code=-1073741819
+[3144:1030/112139.315:ERROR:gpu_process_host.cc(991)] GPU process exited unexpectedly: exit_code=-1073741819
+[3144:1030/112141.594:ERROR:gpu_process_host.cc(991)] GPU process exited unexpectedly: exit_code=-1073741819
+[3144:1030/112143.807:ERROR:gpu_process_host.cc(991)] GPU process exited unexpectedly: exit_code=-1073741819
+[3144:1030/112146.019:ERROR:gpu_process_host.cc(991)] GPU process exited unexpectedly: exit_code=-1073741819
+[3144:1030/112148.249:ERROR:gpu_process_host.cc(991)] GPU process exited unexpectedly: exit_code=-1073741819
+[3144:1030/112150.473:ERROR:gpu_process_host.cc(991)] GPU process exited unexpectedly: exit_code=-1073741819
+[3144:1030/112150.473:FATAL:gpu_data_manager_impl_private.cc(440)] GPU process isn't usable. Goodbye.

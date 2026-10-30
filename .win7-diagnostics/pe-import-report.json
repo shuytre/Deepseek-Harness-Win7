@@ -1,0 +1,365 @@
+{
+  "root": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked",
+  "scannedFiles": 149,
+  "findings": [],
+  "knownDowngrades": [
+    {
+      "feature": "document conversion",
+      "reason": "the office engine imports Windows 8 synchronisation primitives; conversion degrades"
+    },
+    {
+      "feature": "image processing",
+      "reason": "sharp requires Node 20+ and is never loaded on the Node 16 track"
+    },
+    {
+      "feature": "file search",
+      "reason": "ripgrep releases target Windows 8.1+; content search degrades"
+    },
+    {
+      "feature": "terminal",
+      "reason": "ConPTY is a Windows 10 API; node-pty starts winpty on Windows 7 instead"
+    },
+    {
+      "feature": "speech",
+      "reason": "the speech engine has no Windows 7 build; dictation stays unavailable"
+    }
+  ],
+  "knownFindings": [
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\@deepseek-ai\\libreoffice-kit-win32-x64\\bin\\libreoffice-kit.exe",
+      "kind": "symbol",
+      "name": "GetCurrentPackageFullName",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\@deepseek-ai\\libreoffice-kit-win32-x64\\bin\\libreoffice-kit.exe",
+      "kind": "symbol",
+      "name": "GetSystemTimePreciseAsFileTime",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\@deepseek-ai\\libreoffice-kit-win32-x64\\bin\\libreoffice-kit.exe",
+      "kind": "symbol",
+      "name": "SetThreadDpiAwarenessContext",
+      "floor": 10
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\@img\\sharp-win32-x64\\lib\\libvips-42.dll",
+      "kind": "library",
+      "name": "api-ms-win-core-synch-l1-2-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\@img\\sharp-win32-x64\\lib\\libvips-42.dll",
+      "kind": "symbol",
+      "name": "WaitOnAddress",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\@img\\sharp-win32-x64\\lib\\libvips-42.dll",
+      "kind": "symbol",
+      "name": "WakeByAddressAll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\@img\\sharp-win32-x64\\lib\\libvips-42.dll",
+      "kind": "symbol",
+      "name": "WakeByAddressSingle",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\@vscode\\ripgrep-win32-x64\\bin\\rg.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-synch-l1-2-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\@vscode\\ripgrep-win32-x64\\bin\\rg.exe",
+      "kind": "symbol",
+      "name": "WakeByAddressAll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\@vscode\\ripgrep-win32-x64\\bin\\rg.exe",
+      "kind": "symbol",
+      "name": "WaitOnAddress",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\@vscode\\ripgrep-win32-x64\\bin\\rg.exe",
+      "kind": "symbol",
+      "name": "WakeByAddressSingle",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\build\\Release\\conpty\\conpty.dll",
+      "kind": "library",
+      "name": "api-ms-win-core-processthreads-l1-1-1.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\build\\Release\\conpty\\conpty.dll",
+      "kind": "library",
+      "name": "api-ms-win-core-synch-l1-2-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\build\\Release\\conpty\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-winrt-error-l1-1-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\build\\Release\\conpty\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-winrt-l1-1-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\build\\Release\\conpty\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-winrt-string-l1-1-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\build\\Release\\conpty\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-synch-l1-2-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\build\\Release\\conpty\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-processthreads-l1-1-1.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\build\\Release\\conpty\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "WaitOnAddress",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\build\\Release\\conpty\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "WakeByAddressAll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\build\\Release\\conpty\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "WakeByAddressSingle",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\build\\Release\\conpty\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "GetDpiForWindow",
+      "floor": 10
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\prebuilds\\win32-x64\\conpty\\conpty.dll",
+      "kind": "library",
+      "name": "api-ms-win-core-processthreads-l1-1-1.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\prebuilds\\win32-x64\\conpty\\conpty.dll",
+      "kind": "library",
+      "name": "api-ms-win-core-synch-l1-2-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\prebuilds\\win32-x64\\conpty\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-winrt-error-l1-1-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\prebuilds\\win32-x64\\conpty\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-winrt-l1-1-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\prebuilds\\win32-x64\\conpty\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-winrt-string-l1-1-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\prebuilds\\win32-x64\\conpty\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-synch-l1-2-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\prebuilds\\win32-x64\\conpty\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-processthreads-l1-1-1.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\prebuilds\\win32-x64\\conpty\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "WaitOnAddress",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\prebuilds\\win32-x64\\conpty\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "WakeByAddressAll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\prebuilds\\win32-x64\\conpty\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "WakeByAddressSingle",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\prebuilds\\win32-x64\\conpty\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "GetDpiForWindow",
+      "floor": 10
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-arm64\\conpty.dll",
+      "kind": "library",
+      "name": "api-ms-win-core-synch-l1-2-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-arm64\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-winrt-error-l1-1-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-arm64\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-winrt-l1-1-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-arm64\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-winrt-string-l1-1-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-arm64\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-synch-l1-2-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-arm64\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-processthreads-l1-1-1.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-arm64\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "WakeByAddressSingle",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-arm64\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "WakeByAddressAll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-arm64\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "WaitOnAddress",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-arm64\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "GetDpiForWindow",
+      "floor": 10
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-x64\\conpty.dll",
+      "kind": "library",
+      "name": "api-ms-win-core-processthreads-l1-1-1.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-x64\\conpty.dll",
+      "kind": "library",
+      "name": "api-ms-win-core-synch-l1-2-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-x64\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-winrt-error-l1-1-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-x64\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-winrt-l1-1-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-x64\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-winrt-string-l1-1-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-x64\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-synch-l1-2-0.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-x64\\OpenConsole.exe",
+      "kind": "library",
+      "name": "api-ms-win-core-processthreads-l1-1-1.dll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-x64\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "WaitOnAddress",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-x64\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "WakeByAddressAll",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-x64\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "WakeByAddressSingle",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\node-pty\\third_party\\conpty\\1.25.260303002\\win10-x64\\OpenConsole.exe",
+      "kind": "symbol",
+      "name": "GetDpiForWindow",
+      "floor": 10
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\sherpa-onnx-win-x64\\onnxruntime.dll",
+      "kind": "symbol",
+      "name": "CreateFile2",
+      "floor": 8
+    },
+    {
+      "file": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\sherpa-onnx-win-x64\\onnxruntime.dll",
+      "kind": "symbol",
+      "name": "GetSystemTimePreciseAsFileTime",
+      "floor": 8
+    }
+  ]
+}

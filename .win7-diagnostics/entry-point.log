@@ -1,0 +1,1 @@
+[win7] entry-point: the packaged application enters through 'lib/main.cjs', which Electron 22.3.27 can load

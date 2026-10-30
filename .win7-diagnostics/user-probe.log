@@ -1,0 +1,5 @@
+[win7] probe: exit=2147483651 events=4 console-errors=0 workspace=false shell=true session=unknown
+[win7] probe finding: the application never reached the workspace
+[win7] probe finding: the renderer exited: crashed (-1073741819)
+[win7] probe finding: the application exposed no page to inspect
+[win7] probe: 3 finding(s) are unobservable without a desktop; the shell itself loaded and reported itself

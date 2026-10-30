@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "profile": {
+    "enabled": true,
+    "electronVersion": "22.3.27",
+    "nodeVersion": "16.20.2",
+    "pythonVersion": "3.8.10",
+    "buildHostNodeMajor": 22
+  },
+  "signed": false,
+  "steps": [
+    {
+      "name": "unused-imports",
+      "command": "node apps\\desktop\\win7\\check\\check-unused-imports.mjs",
+      "code": 0,
+      "seconds": 0,
+      "log": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\.desktop-build\\win7-build\\unused-imports.log"
+    },
+    {
+      "name": "build",
+      "command": "pnpm.cmd run build",
+      "code": 0,
+      "seconds": 395,
+      "log": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\.desktop-build\\win7-build\\build.log"
+    },
+    {
+      "name": "cjs-externals",
+      "command": "node apps\\desktop\\win7\\check\\check-cjs-externals.mjs",
+      "code": 0,
+      "seconds": 0,
+      "log": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\.desktop-build\\win7-build\\cjs-externals.log"
+    },
+    {
+      "name": "electron-api",
+      "command": "node apps\\desktop\\win7\\check\\check-electron-api.mjs",
+      "code": 0,
+      "seconds": 0,
+      "log": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\.desktop-build\\win7-build\\electron-api.log"
+    },
+    {
+      "name": "native-api",
+      "command": "node apps\\desktop\\win7\\check\\check-native-api.mjs",
+      "code": 0,
+      "seconds": 0,
+      "log": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\.desktop-build\\win7-build\\native-api.log"
+    },
+    {
+      "name": "package",
+      "command": "pnpm.cmd --dir apps/desktop run package:win:x64:unsigned",
+      "code": 0,
+      "seconds": 1142,
+      "log": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\.desktop-build\\win7-build\\package.log"
+    },
+    {
+      "name": "entry-point",
+      "command": "node apps\\desktop\\win7\\check\\check-entry-point.mjs",
+      "code": 0,
+      "seconds": 0,
+      "log": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\.desktop-build\\win7-build\\entry-point.log"
+    },
+    {
+      "name": "user-probe",
+      "command": "node apps\\desktop\\win7\\probe\\run-user-probe.mjs",
+      "code": 0,
+      "seconds": 83,
+      "log": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\.desktop-build\\win7-build\\user-probe.log"
+    },
+    {
+      "name": "scan",
+      "code": 0,
+      "detail": "149 PE files scanned, 0 unexpected violations, 56 known third-party imports (document conversion, image processing, file search, terminal, speech)"
+    },
+    {
+      "name": "trace",
+      "code": 0,
+      "detail": "12776 lines; last: 2026-10-30T11:21:24.656Z require: D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\brotli\\decompress.js | 2026-10-30T11:21:24.965Z require: koffi | 2026-10-30T11:21:24.970Z require: @koromix/koffi-win32-x64 | 2026-10-30T11:21:24.972Z dlopen: \\\\?\\D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\apps\\desktop\\.desktop-build\\targets\\win-x64\\unsigned-artifacts\\win-unpacked\\resources\\dsh\\node_modules\\@koromix\\koffi-win32-x64\\win32_x64\\koffi.node | 2026-10-30T11:21:25.489Z process exit: 0 | 2026-10-30T11:21:28.515Z process exit: 0"
+    },
+    {
+      "name": "probe",
+      "code": 0,
+      "detail": "191 entries imported, none killed its process",
+      "probes": 191
+    },
+    {
+      "name": "boot-matrix",
+      "code": 0,
+      "detail": "not produced: no boot aborted during packaging"
+    },
+    {
+      "name": "publish",
+      "code": 0,
+      "detail": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\dist\\deepseek-harness-0.2.1-alpha.2-win-x64-unsigned-win7-setup.exe"
+    },
+    {
+      "name": "install-check",
+      "command": "node apps\\desktop\\win7\\probe\\check-installation.mjs",
+      "code": 0,
+      "seconds": 119,
+      "log": "D:\\a\\Deepseek-Harness-Win7\\Deepseek-Harness-Win7\\.desktop-build\\win7-build\\install-check.log"
+    }
+  ],
+  "installed": [
+    "dist\\deepseek-harness-0.2.1-alpha.2-win-x64-unsigned-win7-setup.exe"
+  ]
+}
